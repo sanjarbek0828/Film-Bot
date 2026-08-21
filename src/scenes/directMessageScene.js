@@ -32,21 +32,15 @@ const directMessageScene = new Scenes.WizardScene(
             const input = ctx.message.text.trim();
             let targetUser = null;
 
-            if (input.startsWith('@') || isNaN(input)) {
+            if (input.startsWith('@') || isNaN(Number(input))) {
                 // By username
                 let username = input.startsWith('@') ? input.substring(1) : input;
                 username = username.replace(/https?:\/\/t\.me\//, '').trim();
-                targetUser = await User.findOne({ 
-                    $or: [
-                        { username: new RegExp(`^${username}$`, 'i') }, 
-                        { username: username }
-                    ]
-                });
-            } else if (!isNaN(input)) {
-                // By telegram ID
-                targetUser = await User.findOne({ telegramId: parseInt(input) });
+                const safe = username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                targetUser = await User.findOne({ username: new RegExp(`^${safe}$`, 'i') });
             } else {
-                 return ctx.reply('⚠️ Noto\'g\'ri format. ID raqam yoki @username yuboring.');
+                // By telegram ID
+                targetUser = await User.findOne({ telegramId: parseInt(input, 10) });
             }
 
             if (!targetUser) {

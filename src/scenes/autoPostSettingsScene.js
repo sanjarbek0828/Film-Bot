@@ -1,16 +1,13 @@
 import { Scenes, Markup } from 'telegraf';
 import logger from '../utils/logger.js';
-import Config from '../models/Config.js';
+import { getConfig, setConfig, CONFIG_KEYS } from '../services/configService.js';
 
 const autoPostSettingsScene = new Scenes.WizardScene(
     'AUTO_POST_SETTINGS_SCENE',
     // Step 1: Show Current Status & Menu
     async (ctx) => {
-        const channelIdConfig = await Config.findOne({ key: 'CHANNEL_ID' });
-        const isEnabledConfig = await Config.findOne({ key: 'AUTO_POST_ENABLED' });
-
-        const channelId = channelIdConfig ? channelIdConfig.value : 'Mavjud emas';
-        const isEnabled = isEnabledConfig ? isEnabledConfig.value : false;
+        const channelId = await getConfig(CONFIG_KEYS.CHANNEL_ID, 'Mavjud emas');
+        const isEnabled = await getConfig(CONFIG_KEYS.AUTO_POST_ENABLED, false);
 
         ctx.wizard.state.channelId = channelId;
         ctx.wizard.state.isEnabled = isEnabled;
@@ -64,8 +61,7 @@ const autoPostSettingsScene = new Scenes.WizardScene(
 
                     const finalId = chat.id.toString();
 
-                    await Config.findOneAndUpdate({ key: 'CHANNEL_ID' }, { value: finalId }, { upsert: true });
-                    process.env.CHANNEL_ID = finalId;
+                    await setConfig(CONFIG_KEYS.CHANNEL_ID, finalId);
 
                     await ctx.reply(`✅ <b>Kanal muvaffaqiyatli ulandi!</b>\n\n🆔 ID: <code>${finalId}</code>\n📝 Nomi: ${chat.title}\n\n<i>Bot kanalga admin ekanligiga ishonch hosil qiling!</i>`, { parse_mode: 'HTML' });
 
@@ -89,7 +85,7 @@ autoPostSettingsScene.action('toggle_autopost', async (ctx) => {
         const current = ctx.wizard.state.isEnabled;
         const newState = !current;
 
-        await Config.findOneAndUpdate({ key: 'AUTO_POST_ENABLED' }, { value: newState }, { upsert: true });
+        await setConfig(CONFIG_KEYS.AUTO_POST_ENABLED, newState);
         ctx.wizard.state.isEnabled = newState; // Update local state for next render
 
         await ctx.answerCbQuery(newState ? '✅ Yoqildi' : '🔴 O\'chirildi');

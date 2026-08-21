@@ -1,39 +1,79 @@
 import Channel from '../models/Channel.js';
 import Config from '../models/Config.js';
 import logger from '../utils/logger.js';
+import cache, { TTL } from '../utils/cache.js';
 import NodeCache from 'node-cache';
 
-const subCache = new NodeCache({ stdTTL: 60, checkperiod: 60 });
+/**
+ * Majburiy obuna xizmati.
+ *
+ * Muhim tuzatishlar:
+ *  - Kanallar KETMA-KET emas, PARALLEL tekshiriladi (3 kanal = 3x tezroq).
+ *  - Bot kanalda admin bo'lmasa, eski kod foydalanuvchini "obuna bo'lmagan"
+ *    deb hisoblab, BUTUN BOTNI BLOKLAB QO'YARDI. Endi bunday holat log qilinadi,
+ *    lekin foydalanuvchi o'tkaziladi (fail-open) — bot admin sozlamasi
+ *    xatosi tufayli hamma foydalanuvchi yo'qotilmaydi.
+ *  - Har bir foydalanuvchi natijasi qisqa muddatga keshlanadi.
+ */
+
+const memberCache = new NodeCache({ stdTTL: 300, checkperiod: 120, maxKeys: 20000 });
+
+const CONFIG_KEY = 'subscription_enabled';
 
 export const getRequiredChannels = async () => {
-    const cached = subCache.get('channels');
-    if (cached) return cached;
     try {
-        const channels = await Channel.find();
-        subCache.set('channels', channels);
-        return channels;
-    } catch (e) {
+        return await cache.remember('sub:channels', TTL.LONG, () => Channel.find().lean());
+    } catch (error) {
+        logger.error('getRequiredChannels:', error);
         return [];
     }
 };
 
+export const isSubscriptionEnabled = async () => {
+    try {
+        const value = await cache.remember('sub:enabled', TTL.LONG, async () => {
+            const config = await Config.findOne({ key: CONFIG_KEY }).lean();
+            return config ? Boolean(config.value) : true;
+        });
+        return value;
+    } catch {
+        return true;
+    }
+};
+
+const invalidateSubscriptionCaches = () => {
+    cache.delByPrefix('sub:');
+    memberCache.flushAll();
+};
+
 export const addChannel = async (channelId, name, inviteLink, adminId) => {
     try {
-        await Channel.create({ channelId, name, inviteLink, addedBy: adminId });
-        subCache.del('channels'); // Clear cache
+        await Channel.create({ channelId: String(channelId), name, inviteLink, addedBy: String(adminId) });
+        invalidateSubscriptionCaches();
         return true;
-    } catch (e) {
-        logger.error('Add channel error:', e);
+    } catch (error) {
+        logger.error('addChannel:', error);
         return false;
     }
 };
 
 export const removeChannel = async (channelId) => {
     try {
-        await Channel.findOneAndDelete({ channelId });
-        subCache.del('channels'); // Clear cache
+        await Channel.findOneAndDelete({ channelId: String(channelId) });
+        invalidateSubscriptionCaches();
         return true;
-    } catch (e) {
+    } catch (error) {
+        logger.error('removeChannel:', error);
+        return false;
+    }
+};
+
+export const clearChannels = async () => {
+    try {
+        await Channel.deleteMany({});
+        invalidateSubscriptionCaches();
+        return true;
+    } catch {
         return false;
     }
 };
@@ -41,56 +81,76 @@ export const removeChannel = async (channelId) => {
 export const toggleSubscription = async (status) => {
     try {
         await Config.findOneAndUpdate(
-            { key: 'subscription_enabled' },
-            { value: status },
+            { key: CONFIG_KEY },
+            { value: Boolean(status) },
             { upsert: true, new: true }
         );
-        subCache.set('subscription_enabled', status);
+        invalidateSubscriptionCaches();
         return true;
-    } catch (e) {
+    } catch (error) {
+        logger.error('toggleSubscription:', error);
         return false;
     }
 };
 
+/** Foydalanuvchi obuna holatini keshdan tozalaydi (qayta tekshirish uchun) */
+export const invalidateUserSubscription = (userId) => memberCache.del(`sub:${userId}`);
+
+/**
+ * Obunani tekshiradi.
+ * @returns {Promise<true | Array>} `true` — hammasi joyida; massiv — obuna bo'lmagan kanallar
+ */
 export const checkSubscription = async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) return true;
+
     try {
-        // Check global switch from cache
-        let isEnabled = subCache.get('subscription_enabled');
-        if (isEnabled === undefined) {
-            const config = await Config.findOne({ key: 'subscription_enabled' });
-            isEnabled = config ? config.value : true;
-            subCache.set('subscription_enabled', isEnabled);
-        }
+        if (memberCache.get(`sub:${userId}`) === true) return true;
 
-        if (!isEnabled) return true; // Feature disabled
+        if (!(await isSubscriptionEnabled())) return true;
+
         const channels = await getRequiredChannels();
-        if (channels.length === 0) return true; // No channels to check
+        if (channels.length === 0) return true;
 
-        const userId = ctx.from.id;
-        const notSubscribed = [];
-
-        for (const channel of channels) {
-            try {
-                const member = await ctx.telegram.getChatMember(channel.channelId, userId);
-                if (['left', 'kicked'].includes(member.status)) {
-                    notSubscribed.push(channel);
+        const results = await Promise.all(
+            channels.map(async (channel) => {
+                try {
+                    const member = await ctx.telegram.getChatMember(channel.channelId, userId);
+                    return ['left', 'kicked'].includes(member.status) ? channel : null;
+                } catch (error) {
+                    // Bot kanalda admin emas / kanal o'chirilgan / ID xato.
+                    // Foydalanuvchini bloklamaymiz — bu admin sozlamasi muammosi.
+                    logger.warn(
+                        `Obuna tekshirilmadi (kanal: ${channel.name}). Bot kanalda admin ekanini tekshiring:`,
+                        error?.response?.description || error.message
+                    );
+                    return null;
                 }
-            } catch (e) {
-                // If bot is not admin or channel invalid, we typically assume "subscribed" or log error
-                // to avoid blocking user due to bot error.
-                logger.error(`Check sub error for ${channel.channelId}:`, e);
-                // Be strict? or lenient? User said "bot kanalga admin bo'lishi shart".
-                // If checking fails, it usually means bot is not admin.
-                // We will treat as not subscribed to encourage adding bot as admin.
-                // But actually, if bot can't check, it will throw.
-                // Let's assume fail = not subscribed if we want to be strict.
-                notSubscribed.push(channel);
-            }
+            })
+        );
+
+        const notSubscribed = results.filter(Boolean);
+
+        if (notSubscribed.length === 0) {
+            memberCache.set(`sub:${userId}`, true);
+            return true;
         }
 
-        return notSubscribed.length === 0 ? true : notSubscribed;
-    } catch (e) {
-        logger.error('Global sub check error:', e);
-        return true; // Fail safe
+        return notSubscribed;
+    } catch (error) {
+        logger.error('checkSubscription:', error);
+        return true; // Xatolikda foydalanuvchini to'smaslik
     }
+};
+
+/** Obuna talab qiladigan tugmalarni tayyorlaydi */
+export const buildSubscriptionButtons = (channels, checkLabel = '✅ Tekshirish') => {
+    const buttons = channels.map((channel) => {
+        const link = /^https?:\/\//i.test(channel.inviteLink)
+            ? channel.inviteLink
+            : `https://${String(channel.inviteLink).replace(/^\/+/, '')}`;
+        return [{ text: `📢 ${channel.name}`, url: link }];
+    });
+    buttons.push([{ text: checkLabel, callback_data: 'check_subscription' }]);
+    return { inline_keyboard: buttons };
 };

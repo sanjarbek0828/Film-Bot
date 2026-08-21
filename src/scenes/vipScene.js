@@ -1,6 +1,7 @@
 import { Scenes, Markup } from 'telegraf';
 import User from '../models/User.js';
 import logger from '../utils/logger.js';
+import { invalidateUserCache } from '../services/userService.js';
 
 const vipScene = new Scenes.WizardScene(
     'VIP_SCENE',
@@ -146,6 +147,8 @@ const applyVip = async (ctx, days) => {
         );
 
         const dateStr = vipUntil.toISOString().split('T')[0];
+
+        invalidateUserCache(telegramId); // VIP darhol kuchga kirishi uchun
 
         await ctx.editMessageText(ctx.t('vip_granted', { id: telegramId, date: dateStr }), { parse_mode: 'HTML' });
 

@@ -1,138 +1,89 @@
-# 🎥 Kino Bot - Telegram Movie Bot
+# 🎥 FilmXBot — Telegram Kino Bot + WebApp
 
-O'zbek tilidagi to'liq funksiyali Telegram kino boti.
+O'zbek tilidagi to'liq funksiyali Telegram kino boti. Telegraf 4, MongoDB (Mongoose) va React + Vite asosidagi Telegram Mini App katalogi bilan.
 
 ## 🚀 Xususiyatlar
 
-### Foydalanuvchi uchun:
-- 🔍 Kino qidirish (nomi yoki kodi orqali)
-- 📂 Kategoriyalar (janrlar bo'yicha)
-- 🆕 Yangi qo'shilgan kinolar
-- ⭐ Sevimlilar ro'yxati
-- 📤 Do'stlarga ulashish
-- 🔎 Inline qidiruv
+### Foydalanuvchi uchun
+- 🔍 Kino qidirish (nomi yoki kodi orqali, matnli indeks bilan tez)
+- 📂 Kategoriyalar (janrlar bo'yicha, sahifalash bilan)
+- 🆕 Yangi va 🔥 Top kinolar
+- 🎲 Tasodifiy kino va ✨ AI tavsiyalar (ko'rish tarixi asosida)
+- ❤️ Sevimlilar va 📜 ko'rish tarixi (server bilan sinxron)
+- 💎 VIP obuna (Telegram Stars orqali to'lov)
+- 🎫 Promokodlar, 🎁 kunlik bonus, 🗣 referal tizimi
+- 🌐 Telegram Mini App katalog (Netflix uslubidagi UI)
 
-### Admin uchun:
-- ➕ Kino qo'shish (wizard orqali)
-- 🗑️ Kino o'chirish
-- 📊 Statistika
-- 📢 Reklama (broadcast)
-- 🚫 Foydalanuvchini ban/unban qilish
-- ⭐ Top kinolar ro'yxati
+### Admin uchun
+- ➕ Bitta yoki 📚 ommaviy kino qo'shish (iTunes API orqali avto-metama'lumot)
+- ✏️ Kino tahrirlash va 📚 ommaviy tahrirlash (seriallar)
+- 📢 Reklama tarqatish (rate-limitga chidamli, VIP filtri bilan)
+- 🌐 Barchaga VIP berish (aksiya)
+- 💎 VIP boshqaruv, 🚫 ban/unban
+- 📊 Statistika va 📈 kengaytirilgan tahlil
+- 📢 Majburiy obuna sozlamalari, 📡 avto-post
+- 💾 Baza zaxirasi (JSON export), 🗂 admin loglar
 
 ## 📦 O'rnatish
 
-### 1. Loyihani yuklab oling
 ```bash
 git clone <repo-url>
-cd kino-bot
-```
-
-### 2. Bog'liqliklarni o'rnating
-```bash
+cd Film-Bot
 npm install
-```
-
-### 3. `.env` faylini sozlang
-`.env.example` faylidan nusxa oling va to'ldiring:
-```bash
-cp .env.example .env
-```
-
-`.env` fayli:
-```env
-BOT_TOKEN=your_bot_token_here
-MONGODB_URI=your_mongodb_uri_here
-ADMIN_ID=your_telegram_id_here
-PORT=3000
-```
-
-- **BOT_TOKEN**: @BotFather dan oling
-- **MONGODB_URI**: MongoDB Atlas yoki lokal MongoDB manzili (masalan: `mongodb://localhost:27017/kinobot`)
-- **ADMIN_ID**: Sizning Telegram ID raqamingiz (@userinfobot dan oling)
-
-### 4. Botni ishga tushiring
-```bash
+cp .env.example .env   # va qiymatlarni to'ldiring
+npm run build          # WebApp'ni yig'ish
 npm start
 ```
 
-## 🛠 Admin Panel
+### `.env` sozlamalari
+Majburiy: `BOT_TOKEN`, `MONGODB_URI`, `ADMIN_ID`.
+Batafsil izohlar `.env.example` faylida.
 
-Admin paneliga kirish uchun:
-1. Telegram'da botga `/admin` buyrug'ini yuboring
-2. (Faqat ADMIN_ID ga mos kelgan foydalanuvchi uchun ishlaydi)
+- **Webhook rejimi:** `PUBLIC_URL` (yoki Render'da `RENDER_EXTERNAL_URL`) o'rnatilgan bo'lsa avtomatik yoqiladi.
+- **Polling rejimi:** `PUBLIC_URL` bo'sh bo'lsa (mahalliy test uchun).
 
-### Kino qo'shish:
-1. "➕ Kino qo'shish" tugmasini bosing
-2. Bot so'ragan ma'lumotlarni ketma-ket kiriting:
-   - Kino nomi
-   - Kino kodi (unikal raqam)
-   - Yili
-   - Janri
-   - Tavsifi
-   - Video fayli yoki havolasi
-   - Poster rasmi
-
-### Kino o'chirish:
-```
-/delete_123
-```
-(123 o'rniga kino kodini yozing)
-
-### Reklama yuborish:
-```
-/broadcast Xabar matni
-```
-
-### Foydalanuvchini ban qilish:
-```
-/ban 123456789
-/unban 123456789
-```
-
-## 📁 Loyiha tuzilmasi
+## 🏗 Arxitektura
 
 ```
-kino-bot/
-├── index.js              # Kirish nuqtasi
-├── package.json
-├── .env
-├── .env.example
-├── README.md
-└── src/
-    ├── bot/
-    │   ├── bot.js        # Telegraf bot sozlamalari
-    │   └── middleware.js # Auth middleware
-    ├── commands/
-    │   ├── admin.js      # Admin buyruqlari
-    │   ├── start.js      # Start buyrug'i
-    │   ├── user.js       # Foydalanuvchi buyruqlari
-    │   └── category.js   # Kategoriyalar
-    ├── scenes/
-    │   └── addMovieScene.js  # Kino qo'shish wizardi
-    ├── models/
-    │   ├── User.js
-    │   ├── Movie.js
-    │   ├── Category.js
-    │   └── Favorite.js
-    ├── services/
-    │   ├── userService.js
-    │   └── movieService.js
-    ├── config/
-    │   └── db.js         # MongoDB ulanish
-    └── utils/
+Film-Bot/
+├── index.js                  # Express server + webhook/polling + WebApp API
+├── src/
+│   ├── config/
+│   │   ├── env.js            # Markazlashgan, validatsiyalangan konfiguratsiya
+│   │   └── db.js             # MongoDB ulanish (compression, auto-reconnect)
+│   ├── bot/
+│   │   ├── bot.js            # Telegraf sozlamasi + scene'lar
+│   │   ├── middleware.js     # Auth + anti-spam + obuna
+│   │   └── sendMovie.js      # Kino yuborish (HTML-xavfsiz)
+│   ├── commands/             # start, user, admin, category
+│   ├── scenes/               # Wizard/BaseScene'lar (kino qo'shish, VIP, promo...)
+│   ├── models/               # Mongoose modellari (indekslar bilan)
+│   ├── services/             # movie, user, subscription, config, recommendation, vipScheduler
+│   └── utils/                # cache, logger, broadcaster, telegramAuth, html, locales, menuUtils
+└── webapp/                   # React + Vite Telegram Mini App
 ```
 
-## 🌐 Deploy
+## 🔐 Xavfsizlik
 
-### Render.com uchun:
-1. Loyihani GitHub'ga yuklang
-2. Render.com'da Web Service yarating
-3. Environment variables qo'shing
-4. Start command: `npm start`
+- WebApp API (`/api/favorites`) Telegram `initData` HMAC imzosi bilan himoyalangan.
+- Admin huquqi faqat `ADMIN_ID` yoki DB roli bo'yicha, real vaqtda tekshiriladi.
+- Barcha foydalanuvchi matnlari HTML-escape qilinadi (parse xatolari yo'q).
+- Loglarda bot tokeni va DB parollari avtomatik yashiriladi.
+- Rasm proxy SSRF va timeout himoyasi bilan.
 
-### Uptime Robot:
-Bot doimiy ishlashi uchun `/` endpoint'ini ping qiling.
+## ⚡ Ishlash (performance)
+
+- MongoDB indekslari barcha asosiy so'rovlar uchun.
+- Markazlashgan kesh (cache-aside + in-flight deduplication).
+- Katalog javobi sahifalangan va gzip bilan siqilgan.
+- Broadcast cheklangan parallellik + `retry_after` bilan (10k+ foydalanuvchi uchun).
+- WebApp vendor chunk'larga bo'lingan (React/Motion/Icons alohida keshlanadi).
+
+## 🌐 Deploy (Render.com)
+
+`render.yaml` mavjud. Environment variables: `BOT_TOKEN`, `MONGODB_URI`, `ADMIN_ID`.
+Build: `npm install && npm run build`, Start: `npm start`.
+Uptime uchun `/health` endpointini ping qiling.
 
 ## 📝 Litsenziya
 

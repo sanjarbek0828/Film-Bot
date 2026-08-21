@@ -1,57 +1,84 @@
-import https from 'https';
+import logger from '../utils/logger.js';
 
 /**
- * Searches for movie metadata using the iTunes Search API (Free, no token, no limits)
- * @param {string} title - The movie title to search for
- * @returns {Promise<Object|null>}
+ * iTunes Search API orqali kino metama'lumotlarini topadi (bepul, token kerak emas).
+ *
+ * Muhim tuzatishlar:
+ *  - Eski `https.get` da TIMEOUT yo'q edi: API javob bermasa, admin "Kino
+ *    qidirilmoqda..." xabarida abadiy qotib qolardi. Endi 8 sekundlik timeout.
+ *  - `fetch` (Node 18+ native) ishlatiladi — kod ancha sodda.
+ *  - Bir nechta natijadan eng mosini tanlaydi (nom o'xshashligi bo'yicha).
  */
-export const searchMovie = (title) => {
-    return new Promise((resolve) => {
-        if (!title || title.trim().length === 0) {
-            return resolve(null);
+
+const TIMEOUT_MS = 8000;
+
+/** Poster URL sifatini oshiradi: 100x100 → 600x900 */
+const upgradeArtwork = (url) => {
+    if (!url) return null;
+    return url.replace(/\/\d+x\d+bb\./, '/600x900bb.');
+};
+
+/** Sodda o'xshashlik bahosi (0..1) — qidirilgan nom bilan solishtiradi */
+const similarity = (a, b) => {
+    const x = String(a).toLowerCase().trim();
+    const y = String(b).toLowerCase().trim();
+    if (x === y) return 1;
+    if (y.includes(x) || x.includes(y)) return 0.8;
+    const wordsX = new Set(x.split(/\s+/));
+    const wordsY = y.split(/\s+/);
+    const matches = wordsY.filter((word) => wordsX.has(word)).length;
+    return wordsY.length > 0 ? matches / Math.max(wordsX.size, wordsY.length) : 0;
+};
+
+export const searchMovie = async (title) => {
+    const term = String(title ?? '').trim();
+    if (term.length === 0) return null;
+
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&entity=movie&limit=5`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+    try {
+        const response = await fetch(url, {
+            signal: controller.signal,
+            headers: { 'User-Agent': 'FilmXBot/2.0' },
+        });
+
+        if (!response.ok) {
+            logger.debug(`iTunes API status ${response.status}`);
+            return null;
         }
 
-        const query = encodeURIComponent(title.trim());
-        const url = `https://itunes.apple.com/search?term=${query}&entity=movie&limit=1`;
+        const json = await response.json();
+        if (!json?.resultCount) return null;
 
-        https.get(url, (res) => {
-            let data = '';
+        // Eng mos natijani tanlaymiz
+        const best = json.results
+            .map((item) => ({ item, score: similarity(term, item.trackName || '') }))
+            .sort((a, b) => b.score - a.score)[0]?.item;
 
-            res.on('data', (chunk) => {
-                data += chunk;
-            });
+        if (!best) return null;
 
-            res.on('end', () => {
-                try {
-                    const json = JSON.parse(data);
-                    if (json.resultCount > 0) {
-                        const movie = json.results[0];
-                        // iTunes returns small artwork (100x100), we can hack the URL to get a better resolution (e.g. 600x600)
-                        const highResArtwork = movie.artworkUrl100 ? movie.artworkUrl100.replace('100x100bb', '600x900bb') : null;
-                        
-                        const releaseYear = movie.releaseDate ? new Date(movie.releaseDate).getFullYear() : null;
-                        
-                        // Map primaryGenreName to our simple genres if needed, or just use it directly
-                        const genre = movie.primaryGenreName || 'Kino';
+        const poster = upgradeArtwork(best.artworkUrl100);
+        if (!poster) return null;
 
-                        resolve({
-                            title: movie.trackName,
-                            year: releaseYear,
-                            genre: genre,
-                            poster: highResArtwork,
-                            description: movie.longDescription || movie.shortDescription || ''
-                        });
-                    } else {
-                        resolve(null);
-                    }
-                } catch (e) {
-                    console.error('JSON parse error in movieFetcher:', e);
-                    resolve(null);
-                }
-            });
-        }).on('error', (err) => {
-            console.error('iTunes API error:', err);
-            resolve(null);
-        });
-    });
+        return {
+            title: best.trackName,
+            year: best.releaseDate ? new Date(best.releaseDate).getFullYear() : null,
+            genre: best.primaryGenreName || 'Kino',
+            poster,
+            description: (best.longDescription || best.shortDescription || '').slice(0, 900),
+        };
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            logger.debug('iTunes API timeout');
+        } else {
+            logger.debug('iTunes API error:', error.message);
+        }
+        return null;
+    } finally {
+        clearTimeout(timeout);
+    }
 };
+
+export default searchMovie;

@@ -2,6 +2,7 @@ import { Scenes, Markup } from 'telegraf';
 import logger from '../utils/logger.js';
 import User from '../models/User.js';
 import { getMovieByCode } from '../services/movieService.js';
+import { escapeHtml, movieTitle } from '../utils/html.js';
 
 const reportScene = new Scenes.WizardScene(
     'REPORT_SCENE',
@@ -12,11 +13,11 @@ const reportScene = new Scenes.WizardScene(
             ctx.wizard.state.movieCode = movieCode;
 
             const movie = movieCode ? await getMovieByCode(parseInt(movieCode)).catch(() => null) : null;
-            const movieTitle = movie ? movie.title : (movieCode ? `Kino (kod: ${movieCode})` : 'Kino');
+            const titleText = movie ? escapeHtml(movieTitle(movie)) : (movieCode ? `Kino (kod: ${movieCode})` : "Kino");
 
             await ctx.reply(
                 `⚠️ <b>Shikoyat yuborish</b>\n\n` +
-                `🎬 <b>Kino:</b> ${movieTitle}\n` +
+                `🎬 <b>Kino:</b> ${titleText}\n` +
                 `📝 <b>Shikoyat matnini yozing:</b>`,
                 {
                     parse_mode: 'HTML',
@@ -52,9 +53,9 @@ const reportScene = new Scenes.WizardScene(
 
             const movieCode = ctx.wizard.state.movieCode;
             const movie = movieCode ? await getMovieByCode(parseInt(movieCode)).catch(() => null) : null;
-            const movieTitle = movie ? movie.title : (movieCode ? `Kino (kod: ${movieCode})` : 'Kino');
+            const titleText = movie ? escapeHtml(movieTitle(movie)) : (movieCode ? `Kino (kod: ${movieCode})` : "Kino");
 
-            const userName = ctx.from.first_name || ctx.from.username || 'Noma\'lum';
+            const userName = escapeHtml(ctx.from.first_name || ctx.from.username || 'Noma\'lum');
             const userUsername = ctx.from.username ? `@${ctx.from.username}` : 'Username yo\'q';
 
             const admins = await User.find({ role: { $in: ['admin', 'superadmin'] } });
@@ -64,13 +65,13 @@ const reportScene = new Scenes.WizardScene(
             }
 
             const reportMsg = `⚠️ <b>YANGI SHIKOYAT!</b>\n\n` +
-                `🎬 <b>Kino:</b> ${movieTitle}\n` +
+                `🎬 <b>Kino:</b> ${titleText}\n` +
                 (movieCode ? `🔢 <b>Kod:</b> <code>${movieCode}</code>\n\n` : `\n`) +
                 `👤 <b>Shikoyat yuboruvchi:</b>\n` +
                 `├ Ism: ${userName}\n` +
                 `├ Username: ${userUsername}\n` +
                 `└ ID: <code>${ctx.from.id}</code>\n\n` +
-                `📝 <b>Matn:</b>\n${text}\n\n` +
+                `📝 <b>Matn:</b>\n${escapeHtml(text)}\n\n` +
                 `📅 <b>Vaqt:</b> ${new Date().toLocaleString('uz-UZ')}`;
 
             let sentCount = 0;

@@ -1,18 +1,10 @@
 import { Scenes, Markup } from 'telegraf';
 import logger from '../utils/logger.js';
-import { createMovie } from '../services/movieService.js';
-import Movie from '../models/Movie.js';
+import { createMovie, getNextMovieCode } from '../services/movieService.js';
 
-const generateMovieCode = async () => {
-    try {
-        const lastMovie = await Movie.findOne().sort({ code: -1 });
-        return lastMovie ? lastMovie.code + 1 : 1001;
-    } catch (e) {
-        return Math.floor(Math.random() * 9000) + 1000;
-    }
-};
+const generateMovieCode = () => getNextMovieCode();
 
-// Duplicate key xatosida qayta urinib ko'radigan funksiya
+// Duplicate key xatosida kodni oshirib qayta urinadi
 const createMovieWithRetry = async (movieData, maxRetries = 10) => {
     let currentCode = movieData.code;
     for (let i = 0; i < maxRetries; i++) {
@@ -21,7 +13,6 @@ const createMovieWithRetry = async (movieData, maxRetries = 10) => {
             return { movie: await createMovie(data), code: currentCode };
         } catch (error) {
             if (error.code === 11000) {
-                // Duplicate key — kodni oshirib qayta urinish
                 currentCode++;
                 continue;
             }
@@ -78,7 +69,6 @@ const bulkAddMovieScene = new Scenes.WizardScene(
 
             const nextCode = await generateMovieCode();
             const defaultTitle = fileName ? fileName.replace(/\.[^/.]+$/, "") : `Kino #${nextCode}`;
-            const placeholderPoster = 'https://via.placeholder.com/600x800.png?text=Kino+Poster';
 
             const movieData = {
                 title: defaultTitle,
@@ -87,7 +77,7 @@ const bulkAddMovieScene = new Scenes.WizardScene(
                 genre: 'Boshqa',
                 description: '',
                 fileId: fileId,
-                poster: placeholderPoster,
+                poster: null, // Poster keyin "Ommaviy tahrirlash" orqali qo'shiladi
                 isRestricted: false
             };
 

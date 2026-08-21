@@ -1,5 +1,6 @@
 import { Scenes, Markup } from 'telegraf';
 import logger from '../utils/logger.js';
+import { getPrimaryAdminId } from '../utils/adminHelper.js';
 
 import User from '../models/User.js';
 
@@ -95,7 +96,7 @@ const handleViolation = async (ctx, userId, reason) => {
             await ctx.reply('🚫 <b>SIZ BLOKLANGINGIZ!</b>\n\nChat qoidalarini buzganingiz uchun botdan foydalanish huquqingiz bekor qilindi.', { parse_mode: 'HTML' });
 
             // Notify admin
-            const adminId = process.env.ADMIN_ID ? process.env.ADMIN_ID.split(',')[0].trim() : null;
+            const adminId = getPrimaryAdminId();
             if (adminId) {
                 await ctx.telegram.sendMessage(adminId,
                     `🚨 <b>Avto-Bloklash!</b>\n\n👤 User ID: <code>${userId}</code>\n📋 Sabab: ${reason}\n⚠️ Qoidabuzarliklar: ${count}`,

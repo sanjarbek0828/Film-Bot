@@ -1,237 +1,320 @@
-export const locales = {
-    uz: {
-        language_select: "🇺🇿 Iltimos, tilni tanlang:\n🇷🇺 Пожалуйста, выберите язык:\n🇬🇧 Please select a language:",
-        welcome: "👋 <b>Salom, {name}!</b>\n\n🎥 Biz bilan eng zo'r kinolarni izlang va tomosha qiling. Kino kodini yoki nomini yuboring:",
-        menu_main: "🏠 Bosh menyu",
-        menu_cabinet: "👤 Shaxsiy Kabinet",
-        menu_search: "🔍 Qidirish",
-        menu_category: "📂 Kategoriyalar",
-        menu_random: "🎲 Kino Tavsiya",
-        menu_new: "🆕 Yangi kinolar",
-        menu_fav: "❤️ Sevimlilar",
-        menu_top: "🔥 Top kinolar",
-        menu_stats: "📊 Mening statistikam",
-        menu_vip: "💎 VIP Boshqaruv",
-        menu_settings: "⚙️ Sozlamalar",
-        menu_vote: "🗳 Ovoz berish",
-        menu_vip_status: "⏳ VIP Vaqti",
-        menu_history: "📜 Mening Tarixim",
-        menu_shop: "🛍 Do'kon",
-        menu_bonus: "🎁 Kunlik Bonus",
-        menu_invite: "🗣 Do'stlarni taklif qilish",
+/**
+ * Ko'p tilli matnlar (i18n).
+ *
+ * Muhim tuzatishlar:
+ *  - Yetishmayotgan kalitlar qo'shildi: `review_rating_prompt`, `review_your_rating`,
+ *    `review_success`, `review_cancel` (avval bot foydalanuvchiga kalit nomini
+ *    ko'rsatib qo'yardi, masalan "review_rating_prompt").
+ *  - Takrorlangan `settings_title` kalitlari olib tashlandi.
+ *  - `ru` va `en` uchun to'liq to'ldirildi (avval yarmi yo'q edi).
+ *  - Parametr almashtirish global (avval faqat birinchi uchrashuv almashardi).
+ */
 
-        vip_time_remaining: "⏳ <b>Sizning VIP vaqtingiz:</b>\n\n📅 {days} kun, {hours} soat, {minutes} daqiqa qoldi.",
-        vip_expired: "⚠️ Sizning VIP vaqtingiz tugagan.",
+const uz = {
+    language_select: "🇺🇿 Tilni tanlang / Выберите язык / Select language:",
+    welcome: "👋 <b>Salom, {name}!</b>\n\n🎥 Eng sara kinolar shu yerda. Kino <b>kodini</b> yoki <b>nomini</b> yuboring:",
 
-        bonus_claimed: "🎁 +25 ball qo'shildi!\nJami: {points} ball",
-        bonus_cooldown: "⏳ <b>Kutib turing!</b>\nKelgusi bonus {hours} soat {minutes} daqiqadan so'ng.",
+    menu_main: "🏠 Bosh menyu",
+    menu_cabinet: "👤 Shaxsiy kabinet",
+    menu_search: "🔍 Qidirish",
+    menu_category: "📂 Kategoriyalar",
+    menu_random: "🎲 Tasodifiy kino",
+    menu_new: "🆕 Yangi kinolar",
+    menu_fav: "❤️ Sevimlilar",
+    menu_top: "🔥 Top kinolar",
+    menu_stats: "📊 Mening statistikam",
+    menu_vip: "💎 VIP boshqaruv",
+    menu_settings: "⚙️ Sozlamalar",
+    menu_vote: "🗳 Kino so'rash",
+    menu_vip_status: "⏳ VIP vaqti",
+    menu_history: "📜 Ko'rishlar tarixi",
+    menu_shop: "🛍 Do'kon",
+    menu_bonus: "🎁 Kunlik bonus",
+    menu_invite: "🗣 Do'stlarni taklif qilish",
+    menu_catalog: "🌐 Kinolar katalogi",
+    menu_recommend: "✨ Menga tavsiya qil",
 
-        referral_promo: "🗣 <b>Do'stlarni taklif qiling!</b>\nHar 10 ta do'st uchun <b>24 soat VIP</b> oling!\n\n🔗 Havolangiz:\n<code>{link}</code>",
-        referral_progress: "👤 Do'st qo'shildi! (Jami: {count})\n🎉 VIP uchun yana <b>{left} ta</b> do'st kerak.",
-        referral_milestone: "🎉 <b>TABRIKLAYMIZ!</b>\n\nSiz 10 ta do'st taklif qildingiz va <b>24 soatlik VIP</b> oldingiz!\n\nDavom eting, keyingi 10 ta do'st uchun yana bonus bor!",
+    vip_time_remaining: "⏳ <b>VIP vaqtingiz:</b>\n\n📅 {days} kun, {hours} soat, {minutes} daqiqa qoldi.",
+    vip_expired: "⚠️ VIP vaqtingiz tugagan.",
+    vip_active_badge: "💎 <b>VIP:</b> Aktiv ({days} kun qoldi)",
 
-        shop_welcome: "🛍 <b>Ballar Do'koni</b>\n\n💰 Sizning balingiz: <b>{points}</b>\n\n💎 <b>7 Kunlik VIP</b> — 5000 ball",
-        shop_success: "✅ <b>Xarid muvaffaqiyatli!</b>\n\nSiz 7 kunlik VIP sotib oldingiz!",
-        shop_fail: "❌ <b>Mablag' yetarli emas!</b>\n\nSizda yetarli ball yo'q. Kunlik bonus oling yoki ko'proq ishlang!",
+    bonus_claimed: "🎁 +25 ball qo'shildi!\nJami: {points} ball",
+    bonus_cooldown: "⏳ <b>Kutib turing!</b>\nKeyingi bonus {hours} soat {minutes} daqiqadan so'ng.",
 
-        vip_restricted_fav: "🔒 <b>Sevimlilar — faqat VIP uchun!</b>\n\nKinolarni saqlab qo'yish uchun VIP oling.",
-        vip_restricted_review: "🔒 <b>Sharhlar — faqat VIP uchun!</b>\n\nFikr bildirish va o'qish uchun VIP oling.",
-        vip_restricted_report: "🔒 <b>Shikoyat — faqat VIP uchun!</b>",
+    referral_promo: "🗣 <b>Do'stlarni taklif qiling!</b>\nHar 10 ta do'st uchun <b>24 soat VIP</b> oling!\n\n🔗 Havolangiz:\n<code>{link}</code>",
+    referral_progress: "👤 Do'st qo'shildi! (Jami: {count})\n🎉 VIP uchun yana <b>{left} ta</b> do'st kerak.",
+    referral_milestone: "🎉 <b>TABRIKLAYMIZ!</b>\n\nSiz 10 ta do'st taklif qildingiz va <b>24 soatlik VIP</b> oldingiz!",
 
-        report_sent: "✅ Shikoyatingiz adminga yuborildi. Rahmat!",
+    shop_welcome: "🛍 <b>Ballar do'koni</b>\n\n💰 Balingiz: <b>{points}</b>\n\n💎 <b>7 kunlik VIP</b> — 5000 ball",
+    shop_success: "✅ <b>Xarid muvaffaqiyatli!</b>\n\nSiz 7 kunlik VIP sotib oldingiz!",
+    shop_fail: "❌ <b>Ball yetarli emas!</b>\n\nKunlik bonus olib ball to'plang.",
 
-        // VIP Marketing
-        // VIP Marketing
-        vip_promo_start: "💎 <b>VIP Obuna oling!</b>\n\n✅ <b>Cheklovsiz</b> kinolar\n✅ <b>Izohlar</b> qoldirish\n✅ <b>Kinolarni saqlash</b>\n\n<i>Kinolardan 100% bahra oling!</i>",
-        vip_button_get: "💎 VIP olish",
-        vip_restricted: "🔒 Bu funksiya <b>VIP</b> foydalanuvchilar uchun! Cheklovlarsiz ishlash uchun VIP oling.",
+    vip_restricted: "🔒 Bu funksiya <b>VIP</b> foydalanuvchilar uchun.",
+    vip_restricted_fav: "🔒 <b>Sevimlilar — faqat VIP uchun!</b>",
+    vip_restricted_review: "🔒 <b>Sharhlar — faqat VIP uchun!</b>",
+    vip_restricted_report: "🔒 <b>Shikoyat — faqat VIP uchun!</b>",
+    vip_promo_start: "💎 <b>VIP obuna oling!</b>\n\n✅ Kinolarni <b>yuklab olish</b>\n✅ <b>Sharh</b> qoldirish\n✅ <b>Sevimlilar</b> va <b>tarix</b>",
+    vip_button_get: "💎 VIP olish",
+    vip_only_comment: "🔒 Faqat VIP foydalanuvchilar sharh qoldira oladi!",
 
-        search_prompt: "✍️ <b>Kino qidirish</b>\n\nMarhamat, kino kodi yoki nomini yozing:",
-        movie_found: "🎬 <b>{title}</b>\n🎭 Janr: {genre}\n⭐️ Reyting: {rating} | 👁 {views}",
-        vip_only_comment: "🔒 Faqat VIP foydalanuvchilar sharh qoldira oladi!",
-        comment_prompt: "✍️ Marhamat, kino haqida fikringizni yozing:",
-        comment_saved: "✅ Sharhingiz saqlandi! Rahmat.",
+    search_prompt: "✍️ <b>Kino qidirish</b>\n\nKino kodini yoki nomini yozing:",
+    search_results: "🔎 <b>\"{query}\"</b> natijalari ({count} ta):",
+    search_hint: "\n<i>Kinoni ko'rish uchun kodini yuboring.</i>",
+    movie_found: "🎬 <b>{title}</b>\n🎭 Janr: {genre}\n⭐️ Reyting: {rating} | 👁 {views}",
 
-        // Errors and Pagination
-        error_general: "❌ Xatolik yuz berdi. Birozdan so'ng qayta urinib ko'ring.",
-        not_found: "📭 Hech narsa topilmadi.",
-        cancel: "❌ Bekor qilish",
-        page_prev: "⬅️ Oldingi",
-        page_next: "Keyingi ➡️",
-        page_info: "(Sahifa {page})",
-        vip_admin_title: "💎 <b>VIP Foydalanuvchi Qidirish</b>\n\nFoydalanuvchilarni ro'yxatdan tanlang yoki qidirish uchun yozing:",
-        vip_search_result: "🔍 <b>Qidiruv natijalari:</b> '{query}'",
-        vip_select_duration: "⏳ <b>{name}</b> (ID: {id}) uchun VIP muddatini tanlang:",
-        vip_granted: "✅ <b>Muvaffaqiyatli!</b>\nFoydalanuvchi {id} ga VIP statusi {date} gacha berildi.",
-        vip_notify_user: "🎉 <b>Tabriklaymiz!</b>\n\nSizga {days} kunga VIP statusi berildi!\nAmal qilish muddati: {date} gacha.",
+    review_rating_prompt: "⭐️ <b>Kinoga baho bering:</b>\n\n<i>1 dan 5 gacha yulduz tanlang.</i>",
+    review_your_rating: "⭐️ Bahoyingiz: <b>{rating}/5</b>\n\n✍️ Endi qisqa sharh yozib yuboring:",
+    review_success: "✅ <b>Sharhingiz saqlandi!</b>\n\n⭐️ Baho: {rating}/5\n\nRahmat!",
+    review_cancel: "❌ Sharh qoldirish bekor qilindi.",
+    review_text_error: "⚠️ Iltimos, matn yuboring.",
+    comment_prompt: "✍️ Kino haqida fikringizni yozing:",
+    comment_saved: "✅ Sharhingiz saqlandi! Rahmat.",
+    report_sent: "✅ Shikoyatingiz adminga yuborildi. Rahmat!",
 
-        // Settings
-        settings_title: "⚙️ <b>Sozlamalar</b>\n\nO'zgartirmoqchi bo'lgan bo'limni tanlang:",
-        settings_title: "⚙️ <b>Sozlamalar</b>\n\nO'zgartirmoqchi bo'lgan bo'limni tanlang:",
-        lang_changed: "✅ Til o'zgartirildi: O'zbekcha",
+    error_general: "❌ Xatolik yuz berdi. Birozdan so'ng qayta urinib ko'ring.",
+    not_found: "📭 Hech narsa topilmadi.",
+    cancel: "❌ Bekor qilish",
+    loading: "⏳ Yuklanmoqda...",
+    page_prev: "⬅️ Oldingi",
+    page_next: "Keyingi ➡️",
+    page_info: "(Sahifa {page})",
 
-        // Subscription
-        // Subscription
-        sub_check_msg: "🚫 <b>Botdan qidirish uchun majburiy kanallarga a'zo bo'ling:</b>",
-        sub_btn_join: "➕ A'zo bo'lish",
-        sub_btn_check: "✅ Tekshirish",
-        sub_success: "✅ <b>Rahmat!</b> Obuna tasdiqlandi. Botdan foydalanishingiz mumkin.",
-        sub_fail: "❌ <b>Siz hali hamma kanallarga a'zo bo'lmadingiz!</b>",
+    vip_admin_title: "💎 <b>VIP foydalanuvchi qidirish</b>\n\nRo'yxatdan tanlang yoki ism/ID yuboring:",
+    vip_search_result: "🔍 <b>Qidiruv natijalari:</b> '{query}'",
+    vip_select_duration: "⏳ <b>{name}</b> (ID: {id}) uchun VIP muddatini tanlang:",
+    vip_granted: "✅ <b>Muvaffaqiyatli!</b>\nFoydalanuvchi {id} ga VIP {date} gacha berildi.",
+    vip_notify_user: "🎉 <b>Tabriklaymiz!</b>\n\nSizga {days} kunga VIP berildi!\n📅 Muddat: {date} gacha.",
 
-        // Admin Channel
-        admin_channel_menu: "📢 <b>Majburiy Obuna Sozlamalari</b>\n\nJoriy holat: {status}",
-        admin_channel_list: "📋 <b>Kanallar ro'yxati:</b>\n\n{list}",
-        admin_channel_add_prompt: "✍️ <b>Kanal qo'shish</b>\n\nKanal IDsi va Linkini quyidagi formatda yuboring:\n\n<code>-100123456789 https://t.me/+b181CaqTN3k0YTNi</code>\n\n<i>Eslatma: Bot kanalga admin bo'lishi shart!</i>",
-        admin_channel_added: "✅ Kanal qo'shildi!",
-        admin_channel_deleted: "🗑 Kanal o'chirildi.",
+    settings_title: "⚙️ <b>Sozlamalar</b>\n\nO'zgartirmoqchi bo'lgan bo'limni tanlang:",
+    lang_changed: "✅ Til o'zgartirildi: O'zbekcha",
 
-        // Request/Vote Feature
-        request_prompt: "🎬 <b>Kino So'rash</b>\n\nQaysi kinoni qo'shishimizni xohlaysiz?\n\nKino nomini yozing:",
-        request_success: "✅ <b>So'rovingiz qabul qilindi!</b>\n\nAdmin tez orada kinoni qo'shadi. Rahmat!",
-        request_admin_notify: "📬 <b>Yangi Kino So'rovi!</b>\n\n👤 Foydalanuvchi: <b>{name}</b>\n🆔 ID: <code>{id}</code>\n🎬 Kino: <b>{movie}</b>",
-        review_text_error: "⚠️ Iltimos, matn yuboring."
-    },
-    ru: {
-        language_select: "🇺🇿 Iltimos, tilni tanlang:\n🇷🇺 Пожалуйста, выберите язык:\n🇬🇧 Please select a language:",
-        welcome: "👋 <b>Привет, {name}!</b>\n\n🎥 Добро пожаловать в <b>FilmXBot</b>! Здесь вы найдете самые свежие и качественные фильмы.",
-        menu_main: "🏠 Главное меню",
-        menu_cabinet: "👤 Личный кабинет",
-        menu_search: "🔍 Поиск фильмов",
-        menu_category: "📂 Категории",
-        menu_random: "🎲 Случайный фильм",
-        menu_new: "🆕 Новинки",
-        menu_fav: "❤️ Избранное",
-        menu_top: "🔥 Топ фильмы",
-        menu_stats: "📊 Моя статистика",
-        menu_vip: "💎 VIP Управление",
-        menu_settings: "⚙️ Настройки",
-        menu_vote: "🗳 Голосование",
-        menu_vip_status: "⏳ Время VIP",
-        menu_history: "📜 История",
-        vip_time_remaining: "⏳ <b>Ваше время VIP:</b>\n\n📅 {days} дней, {hours} часов, {minutes} минут осталось.",
-        vip_expired: "⚠️ Ваше время VIP истекло.",
+    sub_check_msg: "🚫 <b>Botdan foydalanish uchun kanallarga a'zo bo'ling:</b>",
+    sub_btn_join: "➕ A'zo bo'lish",
+    sub_btn_check: "✅ Tekshirish",
+    sub_success: "✅ <b>Rahmat!</b> Obuna tasdiqlandi.",
+    sub_fail: "❌ <b>Siz hali barcha kanallarga a'zo bo'lmadingiz!</b>",
 
-        vip_promo_start: "💎 <b>VIP Подписка - Безграничные возможности!</b>\n\nВы еще не VIP? Вы многое упускаете!\n\n✅ <b>Эксклюзивные</b> фильмы\n✅ Оставляйте <b>отзывы</b>\n\n<i>Станьте VIP прямо сейчас и наслаждайтесь кино!</i>",
-        vip_button_get: "💎 Купить VIP",
-        vip_restricted: "🔒 Эта функция доступна только VIP пользователям! Получите VIP для снятия ограничений.",
+    admin_channel_menu: "📢 <b>Majburiy obuna sozlamalari</b>\n\nHolat: {status}",
+    admin_channel_list: "📋 <b>Kanallar ro'yxati:</b>\n\n{list}",
+    admin_channel_add_prompt: "✍️ <b>Kanal qo'shish</b>\n\nKanal linkini yoki IDsini yuboring.\n\n<i>Bot kanalga admin bo'lishi shart!</i>",
+    admin_channel_added: "✅ Kanal qo'shildi!",
+    admin_channel_deleted: "🗑 Kanal o'chirildi.",
 
-        search_prompt: "✍️ <b>Поиск фильма</b>\n\nОтправьте название фильма или код:",
-        movie_found: "🎬 <b>{title}</b> ({year})\n\n🎭 Жанр: {genre}\n⭐️ Рейтинг: {rating}\n👁 Просмотры: {views}",
-        vip_only_comment: "🔒 Только VIP пользователи могут оставлять отзывы!",
-        comment_prompt: "✍️ Пожалуйста, напишите ваше мнение о фильме:",
-        comment_saved: "✅ Ваш отзыв сохранен! Спасибо.",
-
-        error_general: "❌ Произошла ошибка. Попробуйте позже.",
-        not_found: "📭 Ничего не найдено.",
-        cancel: "❌ Отмена",
-        page_prev: "⬅️ Назад",
-        page_next: "Вперед ➡️",
-        page_info: "(Страница {page})",
-        vip_admin_title: "💎 <b>Поиск VIP пользователя</b>\n\nВыберите из списка или введите запрос для поиска:",
-        vip_search_result: "🔍 <b>Результаты поиска:</b> '{query}'",
-        vip_select_duration: "⏳ Выберите длительность VIP для <b>{name}</b> (ID: {id}):",
-        vip_granted: "✅ <b>Успешно!</b>\nПользователю {id} выдан VIP статус до {date}.",
-        vip_notify_user: "🎉 <b>Поздравляем!</b>\n\nВам выдан VIP статус на {days} дней!\nДействует до: {date}.",
-
-        settings_title: "⚙️ <b>Настройки</b>\n\nВыберите раздел для изменения:",
-        settings_title: "⚙️ <b>Настройки</b>\n\nВыберите раздел для изменения:",
-        lang_changed: "✅ Язык изменен: Русский",
-
-        // Subscription
-        sub_check_msg: "🚫 <b>Для использования бота подпишитесь на каналы:</b>",
-        sub_btn_join: "➕ Подписаться",
-        sub_btn_check: "✅ Проверить",
-        sub_success: "✅ <b>Спасибо!</b> Подписка подтверждена.",
-        sub_fail: "❌ <b>Вы не подписались на все каналы!</b>",
-
-        // Admin
-        admin_channel_menu: "📢 <b>Настройки Обязательной Подписки</b>",
-        admin_channel_list: "📋 <b>Список каналов:</b>\n\n{list}",
-        admin_channel_add_prompt: "✍️ <b>Добавить канал</b>\n\nОтправьте ID и Link в формате:\n<code>-100xxx https://t.me/xxx</code>",
-        admin_channel_added: "✅ Канал добавлен!",
-        admin_channel_deleted: "🗑 Канал удален.",
-
-        // Request/Vote Feature
-        request_prompt: "🎬 <b>Заказать фильм</b>\n\nКакой фильм вы хотите добавить?\n\nНапишите название:",
-        request_success: "✅ <b>Запрос принят!</b>\n\nАдмин скоро добавит фильм. Спасибо!",
-        request_admin_notify: "📬 <b>Новый запрос фильма!</b>\n\n👤 Пользователь: <b>{name}</b>\n🆔 ID: <code>{id}</code>\n🎬 Фильм: <b>{movie}</b>",
-        review_text_error: "⚠️ Пожалуйста, отправьте текст."
-    },
-    en: {
-        language_select: "🇺🇿 Iltimos, tilni tanlang:\n🇷🇺 Пожалуйста, выберите язык:\n🇬🇧 Please select a language:",
-        welcome: "👋 <b>Hello, {name}!</b>\n\n🎥 Welcome to <b>FilmXBot</b>! You can find the latest and highest quality movies here.",
-        menu_main: "🏠 Main Menu",
-        menu_cabinet: "👤 My Cabinet",
-        menu_search: "🔍 Search Movies",
-        menu_category: "📂 Categories",
-        menu_random: "🎲 Random Movie",
-        menu_new: "🆕 New Movies",
-        menu_fav: "❤️ Favorites",
-        menu_top: "🔥 Top Movies",
-        menu_stats: "📊 My Stats",
-        menu_vip: "💎 VIP Management",
-        menu_settings: "⚙️ Settings",
-        menu_vote: "🗳 Vote",
-        menu_vip_status: "⏳ VIP Time",
-        menu_history: "📜 History",
-        vip_time_remaining: "⏳ <b>Your VIP Time:</b>\n\n📅 {days} days, {hours} hours, {minutes} minutes left.",
-        vip_expired: "⚠️ Your VIP time has expired.",
-
-        vip_promo_start: "💎 <b>VIP Subscription - Limitless Possibilities!</b>\n\nNot a VIP yet? You are missing out!\n\n✅ <b>Exclusive</b> movies\n✅ Leave <b>reviews</b>\n\n<i>Become a VIP now and enjoy the movies!</i>",
-        vip_button_get: "💎 Get VIP",
-        vip_restricted: "🔒 This feature is for VIP users only! Get VIP to verify restrictions.",
-
-        search_prompt: "✍️ <b>Search Movie</b>\n\nSend movie name or code:",
-        movie_found: "🎬 <b>{title}</b> ({year})\n\n🎭 Genre: {genre}\n⭐️ Rating: {rating}\n👁 Views: {views}",
-        vip_only_comment: "🔒 Only VIP users can leave reviews!",
-        comment_prompt: "✍️ Please write your opinion about the movie:",
-        comment_saved: "✅ Your review has been saved! Thank you.",
-
-        error_general: "❌ An error occurred. Please try again later.",
-        not_found: "📭 Nothing found.",
-        cancel: "❌ Cancel",
-        page_prev: "⬅️ Prev",
-        page_next: "Next ➡️",
-        page_info: "(Page {page})",
-        vip_admin_title: "💎 <b>Search VIP User</b>\n\nSelect from list or type to search:",
-        vip_search_result: "🔍 <b>Search results:</b> '{query}'",
-        vip_select_duration: "⏳ Select VIP duration for <b>{name}</b> (ID: {id}):",
-        vip_granted: "✅ <b>Success!</b>\nUser {id} received VIP status until {date}.",
-        vip_notify_user: "🎉 <b>Congratulations!</b>\n\nYou received VIP status for {days} days!\nValid until: {date}.",
-
-        settings_title: "⚙️ <b>Settings</b>\n\nSelect a section to change:",
-        settings_title: "⚙️ <b>Settings</b>\n\nSelect a section to change:",
-        lang_changed: "✅ Language changed: English",
-
-        // Subscription
-        sub_check_msg: "🚫 <b>Please subscribe to these channels to use the bot:</b>",
-        sub_btn_join: "➕ Join",
-        sub_btn_check: "✅ Check Subscription",
-        sub_success: "✅ <b>Thank you!</b> Subscription verified.",
-        sub_fail: "❌ <b>You are not subscribed to all channels!</b>",
-
-        // Admin
-        admin_channel_menu: "📢 <b>Mandatory Subscription Settings</b>",
-        admin_channel_list: "📋 <b>Channel List:</b>\n\n{list}",
-        admin_channel_add_prompt: "✍️ <b>Add Channel</b>\n\nSend ID and Link format:\n<code>-100xxx https://t.me/+b181CaqTN3k0YTNi</code>",
-        admin_channel_added: "✅ Channel added!",
-        admin_channel_deleted: "🗑 Channel deleted.",
-
-        // Request/Vote Feature
-        request_prompt: "🎬 <b>Request Movie</b>\n\nWhich movie would you like us to add?\n\nWrite the movie name:",
-        request_success: "✅ <b>Request received!</b>\n\nAdmin will add the movie soon. Thank you!",
-        request_admin_notify: "📬 <b>New Movie Request!</b>\n\n👤 User: <b>{name}</b>\n🆔 ID: <code>{id}</code>\n🎬 Movie: <b>{movie}</b>",
-        review_text_error: "⚠️ Please send text."
-    }
+    request_prompt: "🎬 <b>Kino so'rash</b>\n\nQaysi kinoni qo'shishimizni xohlaysiz? Nomini yozing:",
+    request_success: "✅ <b>So'rovingiz qabul qilindi!</b>\n\nAdmin tez orada ko'rib chiqadi. Rahmat!",
+    request_admin_notify: "📬 <b>Yangi kino so'rovi!</b>\n\n👤 Foydalanuvchi: <b>{name}</b>\n🆔 ID: <code>{id}</code>\n🎬 Kino: <b>{movie}</b>",
 };
 
-export const getTranslation = (lang, key, params = {}) => {
-    const selectedLang = locales[lang] || locales['uz'];
-    let text = selectedLang[key] || locales['uz'][key] || key;
+const ru = {
+    language_select: "🇺🇿 Tilni tanlang / Выберите язык / Select language:",
+    welcome: "👋 <b>Привет, {name}!</b>\n\n🎥 Лучшие фильмы здесь. Отправьте <b>код</b> или <b>название</b> фильма:",
 
-    Object.keys(params).forEach(param => {
-        text = text.replace(`{${param}}`, params[param]);
-    });
+    menu_main: "🏠 Главное меню",
+    menu_cabinet: "👤 Личный кабинет",
+    menu_search: "🔍 Поиск",
+    menu_category: "📂 Категории",
+    menu_random: "🎲 Случайный фильм",
+    menu_new: "🆕 Новинки",
+    menu_fav: "❤️ Избранное",
+    menu_top: "🔥 Топ фильмы",
+    menu_stats: "📊 Моя статистика",
+    menu_vip: "💎 VIP управление",
+    menu_settings: "⚙️ Настройки",
+    menu_vote: "🗳 Заказать фильм",
+    menu_vip_status: "⏳ Время VIP",
+    menu_history: "📜 История просмотров",
+    menu_shop: "🛍 Магазин",
+    menu_bonus: "🎁 Ежедневный бонус",
+    menu_invite: "🗣 Пригласить друзей",
+    menu_catalog: "🌐 Каталог фильмов",
+    menu_recommend: "✨ Порекомендовать",
+
+    vip_time_remaining: "⏳ <b>Ваше время VIP:</b>\n\n📅 Осталось {days} дн., {hours} ч., {minutes} мин.",
+    vip_expired: "⚠️ Ваше время VIP истекло.",
+    vip_active_badge: "💎 <b>VIP:</b> Активен (осталось {days} дн.)",
+
+    bonus_claimed: "🎁 +25 баллов!\nВсего: {points}",
+    bonus_cooldown: "⏳ <b>Подождите!</b>\nСледующий бонус через {hours} ч. {minutes} мин.",
+
+    referral_promo: "🗣 <b>Приглашайте друзей!</b>\nЗа каждые 10 друзей — <b>24 часа VIP</b>!\n\n🔗 Ваша ссылка:\n<code>{link}</code>",
+    referral_progress: "👤 Друг добавлен! (Всего: {count})\n🎉 До VIP осталось <b>{left}</b> друзей.",
+    referral_milestone: "🎉 <b>ПОЗДРАВЛЯЕМ!</b>\n\nВы пригласили 10 друзей и получили <b>24 часа VIP</b>!",
+
+    shop_welcome: "🛍 <b>Магазин баллов</b>\n\n💰 Ваш баланс: <b>{points}</b>\n\n💎 <b>VIP на 7 дней</b> — 5000 баллов",
+    shop_success: "✅ <b>Покупка успешна!</b>\n\nВы приобрели VIP на 7 дней!",
+    shop_fail: "❌ <b>Недостаточно баллов!</b>\n\nПолучайте ежедневный бонус.",
+
+    vip_restricted: "🔒 Эта функция только для <b>VIP</b> пользователей.",
+    vip_restricted_fav: "🔒 <b>Избранное — только для VIP!</b>",
+    vip_restricted_review: "🔒 <b>Отзывы — только для VIP!</b>",
+    vip_restricted_report: "🔒 <b>Жалобы — только для VIP!</b>",
+    vip_promo_start: "💎 <b>Оформите VIP!</b>\n\n✅ <b>Скачивание</b> фильмов\n✅ <b>Отзывы</b>\n✅ <b>Избранное</b> и <b>история</b>",
+    vip_button_get: "💎 Купить VIP",
+    vip_only_comment: "🔒 Только VIP пользователи могут оставлять отзывы!",
+
+    search_prompt: "✍️ <b>Поиск фильма</b>\n\nОтправьте название или код:",
+    search_results: "🔎 Результаты по <b>\"{query}\"</b> ({count}):",
+    search_hint: "\n<i>Отправьте код, чтобы посмотреть фильм.</i>",
+    movie_found: "🎬 <b>{title}</b>\n🎭 Жанр: {genre}\n⭐️ Рейтинг: {rating} | 👁 {views}",
+
+    review_rating_prompt: "⭐️ <b>Оцените фильм:</b>\n\n<i>Выберите от 1 до 5 звёзд.</i>",
+    review_your_rating: "⭐️ Ваша оценка: <b>{rating}/5</b>\n\n✍️ Теперь напишите короткий отзыв:",
+    review_success: "✅ <b>Отзыв сохранён!</b>\n\n⭐️ Оценка: {rating}/5\n\nСпасибо!",
+    review_cancel: "❌ Отзыв отменён.",
+    review_text_error: "⚠️ Пожалуйста, отправьте текст.",
+    comment_prompt: "✍️ Напишите ваше мнение о фильме:",
+    comment_saved: "✅ Ваш отзыв сохранён! Спасибо.",
+    report_sent: "✅ Жалоба отправлена админу. Спасибо!",
+
+    error_general: "❌ Произошла ошибка. Попробуйте позже.",
+    not_found: "📭 Ничего не найдено.",
+    cancel: "❌ Отмена",
+    loading: "⏳ Загрузка...",
+    page_prev: "⬅️ Назад",
+    page_next: "Вперёд ➡️",
+    page_info: "(Страница {page})",
+
+    vip_admin_title: "💎 <b>Поиск VIP пользователя</b>\n\nВыберите из списка или отправьте имя/ID:",
+    vip_search_result: "🔍 <b>Результаты поиска:</b> '{query}'",
+    vip_select_duration: "⏳ Выберите длительность VIP для <b>{name}</b> (ID: {id}):",
+    vip_granted: "✅ <b>Успешно!</b>\nПользователю {id} выдан VIP до {date}.",
+    vip_notify_user: "🎉 <b>Поздравляем!</b>\n\nВам выдан VIP на {days} дней!\n📅 До: {date}.",
+
+    settings_title: "⚙️ <b>Настройки</b>\n\nВыберите раздел:",
+    lang_changed: "✅ Язык изменён: Русский",
+
+    sub_check_msg: "🚫 <b>Подпишитесь на каналы, чтобы пользоваться ботом:</b>",
+    sub_btn_join: "➕ Подписаться",
+    sub_btn_check: "✅ Проверить",
+    sub_success: "✅ <b>Спасибо!</b> Подписка подтверждена.",
+    sub_fail: "❌ <b>Вы подписались не на все каналы!</b>",
+
+    admin_channel_menu: "📢 <b>Настройки обязательной подписки</b>\n\nСтатус: {status}",
+    admin_channel_list: "📋 <b>Список каналов:</b>\n\n{list}",
+    admin_channel_add_prompt: "✍️ <b>Добавить канал</b>\n\nОтправьте ссылку или ID канала.\n\n<i>Бот должен быть админом!</i>",
+    admin_channel_added: "✅ Канал добавлен!",
+    admin_channel_deleted: "🗑 Канал удалён.",
+
+    request_prompt: "🎬 <b>Заказать фильм</b>\n\nКакой фильм добавить? Напишите название:",
+    request_success: "✅ <b>Запрос принят!</b>\n\nАдмин скоро рассмотрит. Спасибо!",
+    request_admin_notify: "📬 <b>Новый запрос фильма!</b>\n\n👤 Пользователь: <b>{name}</b>\n🆔 ID: <code>{id}</code>\n🎬 Фильм: <b>{movie}</b>",
+};
+
+const en = {
+    language_select: "🇺🇿 Tilni tanlang / Выберите язык / Select language:",
+    welcome: "👋 <b>Hello, {name}!</b>\n\n🎥 The best movies are here. Send a movie <b>code</b> or <b>title</b>:",
+
+    menu_main: "🏠 Main menu",
+    menu_cabinet: "👤 My cabinet",
+    menu_search: "🔍 Search",
+    menu_category: "📂 Categories",
+    menu_random: "🎲 Random movie",
+    menu_new: "🆕 New movies",
+    menu_fav: "❤️ Favorites",
+    menu_top: "🔥 Top movies",
+    menu_stats: "📊 My stats",
+    menu_vip: "💎 VIP management",
+    menu_settings: "⚙️ Settings",
+    menu_vote: "🗳 Request a movie",
+    menu_vip_status: "⏳ VIP time",
+    menu_history: "📜 Watch history",
+    menu_shop: "🛍 Shop",
+    menu_bonus: "🎁 Daily bonus",
+    menu_invite: "🗣 Invite friends",
+    menu_catalog: "🌐 Movie catalog",
+    menu_recommend: "✨ Recommend for me",
+
+    vip_time_remaining: "⏳ <b>Your VIP time:</b>\n\n📅 {days} days, {hours} hours, {minutes} minutes left.",
+    vip_expired: "⚠️ Your VIP has expired.",
+    vip_active_badge: "💎 <b>VIP:</b> Active ({days} days left)",
+
+    bonus_claimed: "🎁 +25 points!\nTotal: {points}",
+    bonus_cooldown: "⏳ <b>Please wait!</b>\nNext bonus in {hours}h {minutes}m.",
+
+    referral_promo: "🗣 <b>Invite your friends!</b>\nGet <b>24 hours of VIP</b> for every 10 friends!\n\n🔗 Your link:\n<code>{link}</code>",
+    referral_progress: "👤 Friend joined! (Total: {count})\n🎉 <b>{left}</b> more friends until VIP.",
+    referral_milestone: "🎉 <b>CONGRATULATIONS!</b>\n\nYou invited 10 friends and earned <b>24 hours of VIP</b>!",
+
+    shop_welcome: "🛍 <b>Points shop</b>\n\n💰 Your balance: <b>{points}</b>\n\n💎 <b>7-day VIP</b> — 5000 points",
+    shop_success: "✅ <b>Purchase successful!</b>\n\nYou bought 7 days of VIP!",
+    shop_fail: "❌ <b>Not enough points!</b>\n\nClaim your daily bonus.",
+
+    vip_restricted: "🔒 This feature is for <b>VIP</b> users only.",
+    vip_restricted_fav: "🔒 <b>Favorites — VIP only!</b>",
+    vip_restricted_review: "🔒 <b>Reviews — VIP only!</b>",
+    vip_restricted_report: "🔒 <b>Reports — VIP only!</b>",
+    vip_promo_start: "💎 <b>Get VIP!</b>\n\n✅ <b>Download</b> movies\n✅ Leave <b>reviews</b>\n✅ <b>Favorites</b> and <b>history</b>",
+    vip_button_get: "💎 Get VIP",
+    vip_only_comment: "🔒 Only VIP users can leave reviews!",
+
+    search_prompt: "✍️ <b>Search a movie</b>\n\nSend a title or code:",
+    search_results: "🔎 Results for <b>\"{query}\"</b> ({count}):",
+    search_hint: "\n<i>Send the code to watch the movie.</i>",
+    movie_found: "🎬 <b>{title}</b>\n🎭 Genre: {genre}\n⭐️ Rating: {rating} | 👁 {views}",
+
+    review_rating_prompt: "⭐️ <b>Rate this movie:</b>\n\n<i>Pick from 1 to 5 stars.</i>",
+    review_your_rating: "⭐️ Your rating: <b>{rating}/5</b>\n\n✍️ Now write a short review:",
+    review_success: "✅ <b>Review saved!</b>\n\n⭐️ Rating: {rating}/5\n\nThank you!",
+    review_cancel: "❌ Review cancelled.",
+    review_text_error: "⚠️ Please send text.",
+    comment_prompt: "✍️ Write your opinion about the movie:",
+    comment_saved: "✅ Your review has been saved! Thank you.",
+    report_sent: "✅ Your report was sent to the admin. Thank you!",
+
+    error_general: "❌ An error occurred. Please try again later.",
+    not_found: "📭 Nothing found.",
+    cancel: "❌ Cancel",
+    loading: "⏳ Loading...",
+    page_prev: "⬅️ Prev",
+    page_next: "Next ➡️",
+    page_info: "(Page {page})",
+
+    vip_admin_title: "💎 <b>Find a VIP user</b>\n\nPick from the list or send a name/ID:",
+    vip_search_result: "🔍 <b>Search results:</b> '{query}'",
+    vip_select_duration: "⏳ Select VIP duration for <b>{name}</b> (ID: {id}):",
+    vip_granted: "✅ <b>Success!</b>\nUser {id} received VIP until {date}.",
+    vip_notify_user: "🎉 <b>Congratulations!</b>\n\nYou received VIP for {days} days!\n📅 Valid until: {date}.",
+
+    settings_title: "⚙️ <b>Settings</b>\n\nSelect a section:",
+    lang_changed: "✅ Language changed: English",
+
+    sub_check_msg: "🚫 <b>Please subscribe to these channels to use the bot:</b>",
+    sub_btn_join: "➕ Join",
+    sub_btn_check: "✅ Check",
+    sub_success: "✅ <b>Thank you!</b> Subscription verified.",
+    sub_fail: "❌ <b>You haven't joined all channels yet!</b>",
+
+    admin_channel_menu: "📢 <b>Mandatory subscription settings</b>\n\nStatus: {status}",
+    admin_channel_list: "📋 <b>Channel list:</b>\n\n{list}",
+    admin_channel_add_prompt: "✍️ <b>Add a channel</b>\n\nSend the channel link or ID.\n\n<i>The bot must be an admin!</i>",
+    admin_channel_added: "✅ Channel added!",
+    admin_channel_deleted: "🗑 Channel deleted.",
+
+    request_prompt: "🎬 <b>Request a movie</b>\n\nWhich movie should we add? Write the title:",
+    request_success: "✅ <b>Request received!</b>\n\nThe admin will review it soon. Thank you!",
+    request_admin_notify: "📬 <b>New movie request!</b>\n\n👤 User: <b>{name}</b>\n🆔 ID: <code>{id}</code>\n🎬 Movie: <b>{movie}</b>",
+};
+
+export const locales = { uz, ru, en };
+
+export const SUPPORTED_LANGUAGES = Object.keys(locales);
+
+/**
+ * Tarjimani oladi va {param} larni almashtiradi.
+ * Kalit topilmasa `uz` ga, u ham topilmasa kalitning o'ziga qaytadi.
+ */
+export const getTranslation = (lang, key, params = {}) => {
+    const dictionary = locales[lang] || uz;
+    let text = dictionary[key] ?? uz[key] ?? key;
+
+    for (const [param, value] of Object.entries(params)) {
+        text = text.split(`{${param}}`).join(String(value ?? ''));
+    }
 
     return text;
 };
+
+/** ctx.t uchun tarjimon yaratadi */
+export const createTranslator = (lang) => (key, params) => getTranslation(lang, key, params);
+
+export default locales;

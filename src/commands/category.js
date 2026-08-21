@@ -1,135 +1,135 @@
 import { Markup } from 'telegraf';
 import logger from '../utils/logger.js';
-import Category from '../models/Category.js';
-import Movie from '../models/Movie.js';
+import { getGenres, getMoviesByGenre } from '../services/movieService.js';
+import { escapeHtml, movieTitle } from '../utils/html.js';
+import { menuMatcher } from '../utils/menuUtils.js';
+
+/**
+ * Kategoriyalar (janrlar) va inline qidiruv.
+ *
+ * TUZATILGAN BUGLAR:
+ *  - Janr ro'yxati `Movie.distinct('genre')` bilan har safar butun kolleksiyani
+ *    skanerlardi va "Jangari, Komediya" kabi qo'shma janrlarni ajratmasdi.
+ *    Endi keshlangan aggregatsiya (`getGenres`) va toza, bo'lingan janrlar.
+ *  - Janr callback_data ("genre_page_2_Uzun Janr Nomi") 64 baytdan oshib,
+ *    Telegram tomonidan rad etilishi mumkin edi. Endi indeks asosida ixcham.
+ *  - Sahifalash DB darajasida (avval har sahifada 2 ta so'rov).
+ */
+
+// Janr nomlarini indeks orqali saqlaymiz (callback_data qisqa bo'lishi uchun)
+let genreCacheList = [];
 
 export const setupCategoryCommands = (bot) => {
-
-    // Handle "📂 Kategoriyalar"
-    bot.hears(['📂 Kategoriyalar', '📂 Категории', '📂 Categories'], async (ctx) => {
+    bot.hears(menuMatcher('menu_category'), async (ctx) => {
         try {
-            const genres = await Movie.distinct('genre');
+            const genres = await getGenres();
+            if (genres.length === 0) return ctx.reply('📭 Hozircha kategoriyalar yo\'q.');
 
-            if (!genres || genres.length === 0) {
-                return ctx.reply('📭 Hozircha kategoriyalar yo\'q.');
-            }
+            genreCacheList = genres.map((g) => g.name);
 
-            const validGenres = genres.filter(g => g && g.trim());
+            const buttons = genres.map((g, i) => [
+                Markup.button.callback(`🎭 ${g.name} (${g.count})`, `genre_${i}_1`),
+            ]);
 
-            const buttons = validGenres.map(g => [Markup.button.callback(`🎭 ${g}`, `genre_${g}`)]);
-
-            ctx.reply('📂 <b>Kategoriyalarni tanlang:</b>', {
+            await ctx.reply('📂 <b>Kategoriyani tanlang:</b>', {
                 parse_mode: 'HTML',
-                ...Markup.inlineKeyboard(buttons)
+                ...Markup.inlineKeyboard(buttons),
             });
-        } catch (e) {
-            logger.error('Category command error:', e);
-            ctx.reply('❌ Xatolik yuz berdi.');
+        } catch (error) {
+            logger.error('Category menu:', error);
+            ctx.reply(ctx.t('error_general')).catch(() => {});
         }
     });
 
-    // Handle genre selection and pagination
-    bot.action(/genre_(.+)/, async (ctx) => {
+    // genre_{index}_{page}
+    bot.action(/^genre_(\d+)_(\d+)$/, async (ctx) => {
         try {
-            const matchData = ctx.match[1];
-            // Format can be: "page_2_Jangari" or "Jangari"
-            const pageMatch = matchData.match(/^page_(\d+)_(.+)$/);
-            let page = 1;
-            let genre = matchData;
-            
-            if (pageMatch) {
-                page = parseInt(pageMatch[1]);
-                genre = pageMatch[2];
+            const genreIndex = parseInt(ctx.match[1], 10);
+            const page = parseInt(ctx.match[2], 10);
+            const genre = genreCacheList[genreIndex];
+
+            if (!genre) {
+                return ctx.answerCbQuery('⚠️ Kategoriyani qayta oching', { show_alert: true });
             }
 
-            const limit = 10;
-            const skip = (page - 1) * limit;
+            const { items, total, totalPages } = await getMoviesByGenre(genre, page, 10);
+            if (items.length === 0) return ctx.answerCbQuery('📭 Bu janrda kino yo\'q');
 
-            const movies = await Movie.find({ genre: { $regex: genre, $options: 'i' } }).sort({createdAt: -1}).skip(skip).limit(limit);
-            const total = await Movie.countDocuments({ genre: { $regex: genre, $options: 'i' } });
-
-            if (!movies || movies.length === 0) {
-                return ctx.answerCbQuery('📭 Bu janrda kino topilmadi');
-            }
-
-            let msg = `🎭 <b>${genre}</b> janridagi kinolar ${ctx.t('page_info', {page})}:\n\n`;
-            movies.forEach((m, i) => {
-                msg += `${skip + i + 1}. 🎬 ${m.title} — <code>${m.code}</code>\n`;
+            const skip = (page - 1) * 10;
+            let msg = `🎭 <b>${escapeHtml(genre)}</b> ${ctx.t('page_info', { page })} — ${total} ta\n\n`;
+            items.forEach((movie, i) => {
+                msg += `${skip + i + 1}. 🎬 ${escapeHtml(movieTitle(movie))} — <code>${movie.code}</code>\n`;
             });
-            msg += '\n<i>Kino kodini yuboring va tomosha qiling!</i>';
+            msg += ctx.t('search_hint');
 
-            const totalPages = Math.ceil(total / limit);
-            const buttons = [];
-            const navRow = [];
-            if (page > 1) navRow.push(Markup.button.callback(ctx.t('page_prev'), `genre_page_${page - 1}_${genre}`));
-            if (totalPages > 1) navRow.push(Markup.button.callback(`${page}/${totalPages}`, 'noop'));
-            if (page < totalPages) navRow.push(Markup.button.callback(ctx.t('page_next'), `genre_page_${page + 1}_${genre}`));
-            
-            if (navRow.length > 0) buttons.push(navRow);
-            
-            // Edit or Reply depending on whether the query was fired from a previous page
+            const nav = [];
+            if (page > 1) nav.push(Markup.button.callback(ctx.t('page_prev'), `genre_${genreIndex}_${page - 1}`));
+            if (totalPages > 1) nav.push(Markup.button.callback(`${page}/${totalPages}`, 'noop'));
+            if (page < totalPages) nav.push(Markup.button.callback(ctx.t('page_next'), `genre_${genreIndex}_${page + 1}`));
+
+            const keyboard = nav.length > 0 ? Markup.inlineKeyboard([nav]) : Markup.inlineKeyboard([]);
+
             try {
-                await ctx.editMessageText(msg, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) });
-            } catch (editError) {
-                // If message hasn't changed or it's first time
-                await ctx.reply(msg, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) });
+                await ctx.editMessageText(msg, { parse_mode: 'HTML', ...keyboard });
+            } catch {
+                await ctx.reply(msg, { parse_mode: 'HTML', ...keyboard });
             }
-            
-            ctx.answerCbQuery().catch(() => { });
-        } catch (e) {
-            logger.error('Genre action error:', e);
-            ctx.answerCbQuery('❌ Xatolik').catch(() => { });
+            ctx.answerCbQuery().catch(() => {});
+        } catch (error) {
+            logger.error('Genre action:', error);
+            ctx.answerCbQuery('❌').catch(() => {});
         }
     });
-
-    bot.action('noop', (ctx) => ctx.answerCbQuery().catch(()=>{}));
 };
 
-// Inline Search Handler - KINO KODI orqali qidirish
 export const setupInlineSearch = (bot) => {
     bot.on('inline_query', async (ctx) => {
         try {
-            const query = ctx.inlineQuery?.query;
+            const query = ctx.inlineQuery?.query?.trim();
+            if (!query) return ctx.answerInlineQuery([], { cache_time: 10 });
 
-            if (!query || query.length < 1) {
-                return ctx.answerInlineQuery([]);
-            }
+            const { searchMovies, getMovieByCode } = await import('../services/movieService.js');
 
             let movies = [];
-
-            // Agar faqat raqam kiritilsa, kod bo'yicha qidirish
             if (/^\d+$/.test(query)) {
-                const movie = await Movie.findOne({ code: parseInt(query) });
+                const movie = await getMovieByCode(parseInt(query, 10));
                 if (movie) movies = [movie];
             } else {
-                // Nom bo'yicha ham qidirish (yordamchi)
-                movies = await Movie.find({
-                    title: { $regex: query, $options: 'i' }
-                }).limit(20);
+                movies = await searchMovies(query, 20);
             }
 
-            const results = movies.map((movie) => {
-                const isUrl = movie.poster && movie.poster.startsWith('http');
+            const botUsername = ctx.botInfo?.username;
+            const results = movies.slice(0, 20).map((movie) => {
+                const title = movieTitle(movie);
+                const isUrlPoster = movie.poster && /^https?:\/\//i.test(movie.poster);
                 return {
                     type: 'article',
-                    id: String(movie._id),
-                    title: movie.title || `Kino #${movie.code}`,
-                    description: `📥 Kod: ${movie.code} | 👁 ${movie.views || 0} ta | 🎭 ${movie.genre || 'Kino'} ${movie.year ? `(${movie.year})` : ''}`,
-                    ...(isUrl ? { thumbnail_url: movie.poster } : {}),
+                    id: String(movie._id || movie.code),
+                    title,
+                    description: `📥 Kod: ${movie.code} | 👁 ${movie.views || 0} | 🎭 ${movie.genre || 'Kino'}`,
+                    ...(isUrlPoster ? { thumbnail_url: movie.poster } : {}),
                     input_message_content: {
-                        message_text: `🎬 <b>${movie.title && !movie.title.startsWith('Kino #') ? movie.title : `Kino #${movie.code}`}</b>\n\n📥 Kino kodi: <code>${movie.code}</code>\n🎭 Janr: ${movie.genre || 'Noma\'lum'}\n\n<i>Kinoni to'liq ko'rish uchun pastdagi tugmani bosing!</i>`,
-                        parse_mode: 'HTML'
+                        message_text:
+                            `🎬 <b>${escapeHtml(title)}</b>\n\n` +
+                            `🔢 Kod: <code>${movie.code}</code>\n` +
+                            `🎭 Janr: ${escapeHtml(movie.genre || 'Noma\'lum')}\n\n` +
+                            `<i>To'liq ko'rish uchun tugmani bosing.</i>`,
+                        parse_mode: 'HTML',
                     },
-                    reply_markup: Markup.inlineKeyboard([
-                        [Markup.button.url('🎬 Kinoni botda ko\'rish', `https://t.me/${ctx.botInfo.username}?start=${movie.code}`)]
-                    ]).reply_markup
+                    reply_markup: {
+                        inline_keyboard: [[
+                            { text: '🎬 Botda ko\'rish', url: `https://t.me/${botUsername}?start=${movie.code}` },
+                        ]],
+                    },
                 };
             });
 
-            await ctx.answerInlineQuery(results, { cache_time: 10 });
-        } catch (e) {
-            logger.error('Inline search error:', e);
-            ctx.answerInlineQuery([]).catch(() => { });
+            await ctx.answerInlineQuery(results, { cache_time: 30, is_personal: false });
+        } catch (error) {
+            logger.error('Inline search:', error);
+            ctx.answerInlineQuery([]).catch(() => {});
         }
     });
 };
+
+export default setupCategoryCommands;

@@ -11,14 +11,11 @@ const favoriteSchema = new mongoose.Schema({
         ref: 'Movie',
         required: true,
     },
-    createdAt: {
-        type: Date,
-        default: Date.now,
-    },
-});
+}, { timestamps: true });
 
-// Prevent duplicate favorites
+// Takroriy sevimlilarni bloklaydi + "foydalanuvchi sevimlilari" so'rovini tezlashtiradi
 favoriteSchema.index({ user: 1, movie: 1 }, { unique: true });
+favoriteSchema.index({ user: 1, createdAt: -1 });
 
 const Favorite = mongoose.model('Favorite', favoriteSchema);
 

@@ -1,5 +1,6 @@
 import { Scenes, Markup } from 'telegraf';
-import Config from '../models/Config.js';
+import { setJsonConfig, deleteConfig, CONFIG_KEYS } from '../services/configService.js';
+import logger from '../utils/logger.js';
 
 const startGifScene = new Scenes.BaseScene('START_GIF_SCENE');
 
@@ -21,7 +22,7 @@ startGifScene.hears('❌ Bekor qilish', async (ctx) => {
 });
 
 startGifScene.command('delete', async (ctx) => {
-    await Config.deleteOne({ key: 'START_GIF' });
+    await deleteConfig(CONFIG_KEYS.START_GIF);
     await ctx.reply('🗑 Start GIF/Xabar muvaffaqiyatli o\'chirildi!', Markup.removeKeyboard());
     return ctx.scene.leave();
 });
@@ -43,16 +44,12 @@ startGifScene.on(['animation', 'photo', 'video'], async (ctx) => {
 
         const caption = ctx.message.caption || ''; 
 
-        await Config.findOneAndUpdate(
-            { key: 'START_GIF' },
-            { value: JSON.stringify({ fileId, type, caption }) },
-            { upsert: true }
-        );
+        await setJsonConfig(CONFIG_KEYS.START_GIF, { fileId, type, caption });
 
         await ctx.reply('✅ Start xabari muvaffaqiyatli saqlandi!', Markup.removeKeyboard());
         return ctx.scene.leave();
     } catch (e) {
-        console.error('Start GIF save error:', e);
+        logger.error('Start GIF save error:', e);
         await ctx.reply('❌ Xatolik yuz berdi. Boshqadan urinib ko\'ring.');
     }
 });

@@ -1,19 +1,14 @@
 import { Scenes, Markup } from 'telegraf';
 import logger from '../utils/logger.js';
-import { createMovie } from '../services/movieService.js';
+import { createMovie, getNextMovieCode } from '../services/movieService.js';
 import { searchMovie } from '../utils/movieFetcher.js';
-import Movie from '../models/Movie.js';
-import Config from '../models/Config.js';
+import { getConfig, CONFIG_KEYS } from '../services/configService.js';
+import { getBroadcastRecipients } from '../services/userService.js';
+import { broadcast } from '../utils/broadcaster.js';
+import config from '../config/env.js';
 
-// Auto-generate unique movie code
-const generateMovieCode = async () => {
-    try {
-        const lastMovie = await Movie.findOne().sort({ code: -1 });
-        return lastMovie ? lastMovie.code + 1 : 1001;
-    } catch (e) {
-        return Math.floor(Math.random() * 9000) + 1000;
-    }
-};
+// Keyingi bo'sh kino kodini qaytaradi
+const generateMovieCode = () => getNextMovieCode();
 
 const addMovieScene = new Scenes.WizardScene(
     'ADD_MOVIE_SCENE',
@@ -190,51 +185,60 @@ const addMovieScene = new Scenes.WizardScene(
 
             const movie = await createMovie(movieData);
 
-            await ctx.replyWithPhoto(movie.poster, {
-                caption: `✅ <b>Kino muvaffaqiyatli saqlandi!</b>\n\n🎬 <b>Kino kodi:</b> <code>${movie.code}</code>\n🔒 VIP Himoya: ${movie.isRestricted ? "Qat'iy" : "Standart"}\n\n<i>Kino kanalga va barcha foydalanuvchilarga yuborilmoqda...</i>`,
-                parse_mode: 'HTML',
-                ...Markup.inlineKeyboard([
-                    [Markup.button.callback('➕ Yana Kino Qo\'shish', 'add_another_movie')],
-                    [Markup.button.callback('🏠 Menyuga qaytish', 'cancel_add')]
-                ])
-            });
+            const savedCaption = `✅ <b>Kino muvaffaqiyatli saqlandi!</b>\n\n🎬 <b>Kino kodi:</b> <code>${movie.code}</code>\n🔒 VIP Himoya: ${movie.isRestricted ? "Qat'iy" : "Standart"}\n\n<i>Kino barcha foydalanuvchilarga yuborilmoqda...</i>`;
+            const savedKeyboard = Markup.inlineKeyboard([
+                [Markup.button.callback('➕ Yana Kino Qo\'shish', 'add_another_movie')],
+                [Markup.button.callback('🏠 Menyuga qaytish', 'cancel_add')],
+            ]);
 
-            // 🚀 AUTO BROADCAST TO ALL USERS
-            const users = await import('../models/User.js').then(m => m.default.find({ isBanned: false }));
-            if (users) {
-                const userCaption = `✨ <b>Bazamizga yangi kino qo'shildi!</b>\n\n📥 <b>Kinoni ko'rish uchun quyidagi kodni botga yuboring:</b>\n\n👉 <code>${movie.code}</code>`;
-                
-                (async () => {
-                    for (let i = 0; i < users.length; i++) {
-                        const uid = users[i].telegramId;
-                        try {
-                            await ctx.telegram.sendPhoto(uid, movie.poster, {
+            if (movie.poster) {
+                await ctx.replyWithPhoto(movie.poster, { caption: savedCaption, parse_mode: 'HTML', ...savedKeyboard }).catch(async () => {
+                    await ctx.reply(savedCaption, { parse_mode: 'HTML', ...savedKeyboard });
+                });
+            } else {
+                await ctx.reply(savedCaption, { parse_mode: 'HTML', ...savedKeyboard });
+            }
+
+            // 🚀 AUTO BROADCAST TO ALL USERS (rate-limitga chidamli)
+            const recipients = await getBroadcastRecipients().catch(() => []);
+            if (recipients.length > 0) {
+                const userCaption = `✨ <b>Bazamizga yangi kino qo'shildi!</b>\n\n📥 Ko'rish uchun kodni yuboring:\n\n👉 <code>${movie.code}</code>`;
+                const posterFileId = movie.poster;
+                const botUsername = ctx.botInfo?.username;
+
+                // Fon rejimida — adminni bloklamaydi
+                broadcast({
+                    recipients,
+                    send: (uid) =>
+                        posterFileId
+                            ? ctx.telegram.sendPhoto(uid, posterFileId, {
                                 caption: userCaption,
                                 parse_mode: 'HTML',
-                                ...Markup.inlineKeyboard([[Markup.button.url('📥 Kinoni Ko\'rish', `https://t.me/${ctx.botInfo.username}?start=${movie.code}`)]])
-                            });
-                        } catch (e) { }
-                        await new Promise(r => setTimeout(r, 40));
-                    }
-                })();
+                                ...Markup.inlineKeyboard([[Markup.button.url('📥 Kinoni ko\'rish', `https://t.me/${botUsername}?start=${movie.code}`)]]),
+                            })
+                            : ctx.telegram.sendMessage(uid, userCaption, {
+                                parse_mode: 'HTML',
+                                ...Markup.inlineKeyboard([[Markup.button.url('📥 Kinoni ko\'rish', `https://t.me/${botUsername}?start=${movie.code}`)]]),
+                            }),
+                }).catch((err) => logger.error('Auto-broadcast:', err));
             }
 
             // 📡 AUTO POST TO CHANNEL
-            const autoPostConfig = await Config.findOne({ key: 'AUTO_POST_ENABLED' });
-            const channelIdConfig = await Config.findOne({ key: 'CHANNEL_ID' });
-
-            const isAutoPostEnabled = autoPostConfig ? autoPostConfig.value : false;
-            const targetChannelId = (channelIdConfig && channelIdConfig.value) ? channelIdConfig.value : process.env.CHANNEL_ID;
+            const isAutoPostEnabled = await getConfig(CONFIG_KEYS.AUTO_POST_ENABLED, false);
+            const targetChannelId = (await getConfig(CONFIG_KEYS.CHANNEL_ID)) || config.channelId;
 
             if (isAutoPostEnabled && targetChannelId) {
                 try {
-                    const channelCaption = `🎬 <b>Yangi Kino qo'shildi!</b>\n\n📥 <b>Kino kodi:</b> <code>${movie.code}</code>\n\n🤖 <b>Bot orqali ko'rish:</b> @${ctx.botInfo.username}`;
-
-                    await ctx.telegram.sendPhoto(targetChannelId, movie.poster, {
-                        caption: channelCaption,
-                        parse_mode: 'HTML',
-                        ...Markup.inlineKeyboard([[Markup.button.url('📥 Kinoni Yuklash', `https://t.me/${ctx.botInfo.username}?start=${movie.code}`)]])
-                    });
+                    const channelCaption = `🎬 <b>Yangi kino qo'shildi!</b>\n\n📥 <b>Kod:</b> <code>${movie.code}</code>\n\n🤖 @${ctx.botInfo.username}`;
+                    if (movie.poster) {
+                        await ctx.telegram.sendPhoto(targetChannelId, movie.poster, {
+                            caption: channelCaption,
+                            parse_mode: 'HTML',
+                            ...Markup.inlineKeyboard([[Markup.button.url('📥 Kinoni yuklash', `https://t.me/${ctx.botInfo.username}?start=${movie.code}`)]]),
+                        });
+                    } else {
+                        await ctx.telegram.sendMessage(targetChannelId, channelCaption, { parse_mode: 'HTML' });
+                    }
                     await ctx.reply('✅ <b>Kanalga avto-post joylandi!</b>', { parse_mode: 'HTML' });
                 } catch (chErr) {
                     await ctx.reply('⚠️ Kanalga post joylashda xatolik: ' + chErr.message);
@@ -254,15 +258,9 @@ const addMovieScene = new Scenes.WizardScene(
 addMovieScene.action('add_another_movie', async (ctx) => {
     try {
         await ctx.answerCbQuery().catch(()=>{});
-        ctx.wizard.state = {}; // Tizimni tozalash
-        
-        let nextCode;
-        try {
-            const lastMovie = await import('../models/Movie.js').then(m => m.default.findOne().sort({ code: -1 }));
-            nextCode = lastMovie ? lastMovie.code + 1 : 1001;
-        } catch (e) {
-            nextCode = Math.floor(Math.random() * 9000) + 1000;
-        }
+        ctx.wizard.state = {}; // Holatni tozalash
+
+        const nextCode = await generateMovieCode();
         ctx.wizard.state.autoCode = nextCode;
         
         await ctx.reply(`🎬 <b>Kino qo'shish (Tezkor Rejim)</b>\n\nIltimos, avval kinoning <b>VIDEO</b> faylini yuboring:\n\n<i>Kino kodi: <code>${nextCode}</code></i>`, {

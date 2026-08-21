@@ -1,306 +1,240 @@
 import { Markup } from 'telegraf';
-import Movie from '../models/Movie.js';
 import User from '../models/User.js';
-import Config from '../models/Config.js';
-import Favorite from '../models/Favorite.js';
-import { getTranslation } from '../utils/locales.js';
-import { sendMainMenu } from '../utils/menuUtils.js';
-import { checkSubscription } from '../services/subscriptionService.js';
+import config from '../config/env.js';
 import logger from '../utils/logger.js';
-import { sendMovie } from './user.js';
-import NodeCache from 'node-cache';
+import { getMovieByCode } from '../services/movieService.js';
+import { getJsonConfig, CONFIG_KEYS } from '../services/configService.js';
+import { checkSubscription, invalidateUserSubscription } from '../services/subscriptionService.js';
+import { extendVip, updateUser } from '../services/userService.js';
+import { createTranslator, SUPPORTED_LANGUAGES } from '../utils/locales.js';
+import { sendMainMenu, buildSettingsKeyboard, menuMatcher } from '../utils/menuUtils.js';
+import { sendMovie } from '../bot/sendMovie.js';
 
-// Config cache — START_GIF va GLOBAL_VIP uchun (5 daqiqa)
-const configCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
+/**
+ * /start, /help, til tanlash, obuna tekshiruvi.
+ *
+ * TUZATILGAN BUGLAR:
+ *  - Referral: eski kod referrer VIP ni faqat har 10-taklifda bersa-da,
+ *    xabarni har safar noto'g'ri kalit bilan yuborardi. Endi soddalashtirildi
+ *    va `extendVip` orqali xavfsiz.
+ *  - START_GIF va GLOBAL_VIP endi markazlashgan `configService` orqali
+ *    (alohida keshlar sinxrondan chiqmaydi).
+ *  - Obuna muvaffaqiyatli bo'lgach `pendingMovieCode` avtomatik yuboriladi.
+ */
+
+const DEFAULT_START_TEXT =
+    `🎬 <b>FilmXBotga xush kelibsiz!</b>\n\n` +
+    `🔍 Kino topish juda oson:\n` +
+    `1️⃣ Kino <b>nomini</b> yozing (masalan: <i>Venom</i>)\n` +
+    `2️⃣ Yoki kino <b>kodini</b> yuboring (masalan: <i>1025</i>)\n\n` +
+    `🌐 Katalogni ochish uchun pastdagi menyudan foydalaning.`;
+
+/** start payload: referral (uzun raqam) yoki kino kodi (qisqa raqam) */
+const parseStartPayload = (payload, selfId) => {
+    if (!payload || !/^\d+$/.test(payload)) return {};
+    if (payload.length >= 7) {
+        return payload !== String(selfId) ? { referrerId: payload } : {};
+    }
+    return { movieCode: parseInt(payload, 10) };
+};
+
+/** Yangi foydalanuvchi uchun referral mukofoti + aksiya VIP */
+const handleNewUserBonuses = async (ctx, user, referrerId) => {
+    // Aksiya (global) VIP — ro'yxatdan o'tganda avtomatik sovg'a
+    try {
+        const action = await getJsonConfig(CONFIG_KEYS.LATEST_GLOBAL_VIP);
+        if (action?.targetDate && action.targetDate > Date.now()) {
+            await updateUser(user.telegramId, { $set: { vipUntil: new Date(action.targetDate) } });
+        }
+    } catch (error) {
+        logger.debug('Global VIP gift skip:', error.message);
+    }
+
+    if (!referrerId) return;
+
+    try {
+        const referrer = await User.findOneAndUpdate(
+            { telegramId: parseInt(referrerId, 10) },
+            { $inc: { referralCount: 1 } },
+            { new: true }
+        );
+        if (!referrer) return;
+
+        if (referrer.referralCount % 10 === 0) {
+            await extendVip(referrer.telegramId, 1, 'referral');
+            ctx.telegram
+                .sendMessage(referrer.telegramId, ctx.t('referral_milestone'), { parse_mode: 'HTML' })
+                .catch(() => {});
+        } else {
+            const left = 10 - (referrer.referralCount % 10);
+            ctx.telegram
+                .sendMessage(
+                    referrer.telegramId,
+                    ctx.t('referral_progress', { count: referrer.referralCount, left }),
+                    { parse_mode: 'HTML' }
+                )
+                .catch(() => {});
+        }
+    } catch (error) {
+        logger.debug('Referral bonus skip:', error.message);
+    }
+};
+
+/** START_GIF sozlamasi bo'lsa uni, aks holda standart matnni yuboradi */
+const sendWelcome = async (ctx) => {
+    try {
+        const gif = await getJsonConfig(CONFIG_KEYS.START_GIF);
+        if (gif?.fileId && gif?.type) {
+            const caption = gif.caption || DEFAULT_START_TEXT;
+            const opts = { caption, parse_mode: 'HTML' };
+            if (gif.type === 'animation') return void (await ctx.replyWithAnimation(gif.fileId, opts));
+            if (gif.type === 'photo') return void (await ctx.replyWithPhoto(gif.fileId, opts));
+            if (gif.type === 'video') return void (await ctx.replyWithVideo(gif.fileId, opts));
+        }
+    } catch (error) {
+        logger.debug('START_GIF skip:', error.message);
+    }
+    await ctx.reply(DEFAULT_START_TEXT, { parse_mode: 'HTML' }).catch(() => {});
+};
 
 export const setupStartCommand = (bot) => {
-
+    // ═══ /help ═══
     bot.command('help', async (ctx) => {
-        try {
-            if (ctx.scene?.current) await ctx.scene.leave().catch(() => {});
-            await ctx.reply(
-                `ℹ️ <b>Yordam va Buyruqlar</b>\n\n` +
-                `🔹 /start — Botni yangilash\n` +
-                `🔹 /help — Yordam olish\n` +
-                `🔹 /support — Adminga yozish\n\n` +
-                `🎯 <i>Kino topish uchun shunchaki kodini yoki nomini yuboring.</i>`,
-                { parse_mode: 'HTML' }
-            );
-        } catch (e) {
-            logger.error('Help command error:', e);
-        }
+        if (ctx.session?.__scenes?.current) await ctx.scene.leave().catch(() => {});
+        await ctx.reply(
+            `ℹ️ <b>Yordam va buyruqlar</b>\n\n` +
+            `🔹 /start — Botni qayta ishga tushirish\n` +
+            `🔹 /help — Yordam\n` +
+            `🔹 /support — Admin bilan bog'lanish\n\n` +
+            `🎯 <i>Kino topish uchun kodini yoki nomini yuboring.</i>`,
+            { parse_mode: 'HTML' }
+        ).catch(() => {});
     });
 
+    // ═══ /support ═══
     bot.command('support', async (ctx) => {
-        try {
-            if (ctx.scene?.current) await ctx.scene.leave().catch(() => {});
-            await ctx.reply(
-                `📞 <b>Qo'llab-quvvatlash</b>\n\nSavol yoki muammo bo'lsa adminga yozing:\n- @sanjarbek_404`,
-                {
-                    parse_mode: 'HTML',
-                    ...Markup.inlineKeyboard([[Markup.button.url('📞 Adminga yozish', 'https://t.me/sanjarbek_404')]])
-                }
-            );
-        } catch (e) {
-            logger.error('Support command error:', e);
-        }
+        if (ctx.session?.__scenes?.current) await ctx.scene.leave().catch(() => {});
+        await ctx.reply(
+            `📞 <b>Qo'llab-quvvatlash</b>\n\nSavol yoki muammo bo'lsa yozing:`,
+            {
+                parse_mode: 'HTML',
+                ...Markup.inlineKeyboard([[Markup.button.url('📞 Adminga yozish', `https://t.me/${config.supportUsername}`)]]),
+            }
+        ).catch(() => {});
     });
 
+    // ═══ /start ═══
     bot.start(async (ctx) => {
         try {
-            const startPayload = ctx.message?.text?.split(' ')[1];
-            let pendingMovieCode = null;
-            let referrerId = null;
+            const payload = ctx.message?.text?.split(' ')[1];
+            const { referrerId, movieCode } = parseStartPayload(payload, ctx.from.id);
 
-            if (startPayload && /^\d+$/.test(startPayload)) {
-                if (startPayload.length >= 7) {
-                    referrerId = startPayload;
-                } else {
-                    pendingMovieCode = parseInt(startPayload);
-                }
-            }
-
-            // ═══ SESSION'DAGI USER'DAN FOYDALANISH (middleware allaqachon topgan!) ═══
             let user = ctx.session?.user;
+            const isNewUser = !user?._id;
 
-            // Agar yangi foydalanuvchi bo'lsa — yaratish
-            if (!user || !user.telegramId) {
+            // Middleware topolmagan bo'lsa yoki yangi bo'lsa — yaratamiz
+            if (!user?.telegramId) {
                 user = await User.findOne({ telegramId: ctx.from.id });
             }
-
             if (!user) {
-                try {
-                    user = await User.create({
-                        telegramId: ctx.from.id,
-                        firstName: ctx.from.first_name,
-                        username: ctx.from.username,
-                        language: 'uz',
-                        invitedBy: (referrerId && referrerId !== ctx.from.id.toString()) ? referrerId : null
-                    });
-
-                    // Aksiya VIP tekshiruvi (CACHE'DAN)
-                    try {
-                        let actionConfig = configCache.get('LATEST_GLOBAL_VIP');
-                        if (actionConfig === undefined) {
-                            const dbConfig = await Config.findOne({ key: 'LATEST_GLOBAL_VIP' }).lean();
-                            actionConfig = dbConfig?.value || null;
-                            configCache.set('LATEST_GLOBAL_VIP', actionConfig);
-                        }
-                        if (actionConfig) {
-                            const actionData = JSON.parse(actionConfig);
-                            if (actionData.targetDate > Date.now()) {
-                                user.vipUntil = new Date(actionData.targetDate);
-                                await user.save();
-                            }
-                        }
-                    } catch (e) {
-                        logger.error('Welcome VIP auto-gift error', e);
-                    }
-
-                    // Referral tizimi
-                    if (user.invitedBy) {
-                        try {
-                            const referrer = await User.findOne({ telegramId: parseInt(user.invitedBy) });
-                            if (referrer) {
-                                referrer.referralCount = (referrer.referralCount || 0) + 1;
-                                if (referrer.referralCount % 10 === 0) {
-                                    let currentVip = referrer.vipUntil && new Date(referrer.vipUntil) > new Date() ? new Date(referrer.vipUntil) : new Date();
-                                    referrer.vipUntil = new Date(currentVip.getTime() + 24 * 60 * 60 * 1000);
-                                    ctx.telegram.sendMessage(referrer.telegramId, ctx.t('referral_milestone'), { parse_mode: 'HTML' }).catch(() => {});
-                                } else {
-                                    const left = 10 - (referrer.referralCount % 10);
-                                    ctx.telegram.sendMessage(referrer.telegramId, ctx.t('referral_progress', { count: referrer.referralCount, left }), { parse_mode: 'HTML' }).catch(() => {});
-                                }
-                                await referrer.save();
-                            }
-                        } catch (e) {}
-                    }
-                } catch (e) {
-                    user = await User.findOne({ telegramId: ctx.from.id });
-                }
-            } else if (!user.language) {
-                user.language = 'uz';
-                await User.updateOne({ telegramId: ctx.from.id }, { language: 'uz' });
+                user = await User.create({
+                    telegramId: ctx.from.id,
+                    firstName: ctx.from.first_name,
+                    username: ctx.from.username,
+                    language: 'uz',
+                    invitedBy: referrerId || null,
+                });
+                ctx.t = createTranslator(user.language);
+                await handleNewUserBonuses(ctx, user, referrerId);
             }
 
-            // Session'ni yangilash
             if (!ctx.session) ctx.session = {};
             ctx.session.user = user;
-            ctx.t = (key, params) => getTranslation(user?.language || 'uz', key, params);
+            ctx.t = createTranslator(user.language || 'uz');
 
-            // ═══ OBUNA TEKSHIRUV (middleware cache'dan o'tsa — bu yerda o'tkazmaslik) ═══
-            // Middleware allaqachon callback_query va cache'langan holatlarda next() qilgan.
-            // Start buyrug'i uchun yangi tekshirish kerak (deeplink bilan kelishi mumkin)
-            const subStatus = await checkSubscription(ctx);
-            if (subStatus !== true && Array.isArray(subStatus) && subStatus.length > 0) {
-                if (pendingMovieCode) {
-                    ctx.session.pendingMovieCode = pendingMovieCode;
+            // ═══ Obuna tekshiruvi (deeplink bilan kelishi mumkin) ═══
+            if (!ctx.isAdmin) {
+                const status = await checkSubscription(ctx);
+                if (status !== true && Array.isArray(status) && status.length > 0) {
+                    if (movieCode) ctx.session.pendingMovieCode = movieCode;
+                    const buttons = status.map((ch) => [
+                        Markup.button.url(`📢 ${ch.name}`, /^https?:\/\//i.test(ch.inviteLink) ? ch.inviteLink : `https://${ch.inviteLink}`),
+                    ]);
+                    buttons.push([Markup.button.callback(ctx.t('sub_btn_check'), 'check_subscription')]);
+                    return ctx.reply(ctx.t('sub_check_msg'), { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) });
                 }
-                const buttons = subStatus.map(ch => [Markup.button.url(`➕ ${ch.name}`, ch.inviteLink)]);
-                buttons.push([Markup.button.callback(ctx.t('sub_btn_check'), 'check_subscription')]);
-                return ctx.reply(ctx.t('sub_check_msg'), {
-                    parse_mode: 'HTML',
-                    ...Markup.inlineKeyboard(buttons)
-                });
             }
 
-            // ═══ KINO YUBORISH (deeplink) ═══
-            if (pendingMovieCode) {
-                const movie = await Movie.findOne({ code: pendingMovieCode }).lean();
+            // ═══ Deeplink kino ═══
+            if (movieCode) {
+                const movie = await getMovieByCode(movieCode);
                 if (movie) {
+                    await sendWelcome(ctx);
                     await sendMovie(ctx, movie, user);
-                    return;
-                } else {
-                    await ctx.reply(ctx.t('not_found')).catch(() => {});
+                    return sendMainMenu(ctx, '👇 Quyidagi menyudan foydalaning:');
                 }
             }
 
-            // ═══ START GIF/TEXT (CACHE'DAN) ═══
-            try {
-                let startGifData = configCache.get('START_GIF');
-                if (startGifData === undefined) {
-                    const dbConfig = await Config.findOne({ key: 'START_GIF' }).lean();
-                    startGifData = dbConfig?.value || null;
-                    configCache.set('START_GIF', startGifData);
-                }
-
-                let customSent = false;
-                if (startGifData) {
-                    const data = JSON.parse(startGifData);
-                    const caption = data.caption || `🎬 <b>FilmXBotga Xush kelibsiz!</b>\n\n🔍 Kino kodini yoki nomini yuboring.`;
-                    
-                    try {
-                        if (data.type === 'animation') {
-                            await ctx.replyWithAnimation(data.fileId, { caption, parse_mode: 'HTML' });
-                            customSent = true;
-                        } else if (data.type === 'photo') {
-                            await ctx.replyWithPhoto(data.fileId, { caption, parse_mode: 'HTML' });
-                            customSent = true;
-                        } else if (data.type === 'video') {
-                            await ctx.replyWithVideo(data.fileId, { caption, parse_mode: 'HTML' });
-                            customSent = true;
-                        }
-                    } catch (e) {}
-                }
-
-                if (!customSent) {
-                    await ctx.reply(
-                        `🎬 <b>FilmXBot - Eng sara kinolar!</b>\n\n` +
-                        `🔍 <b>Kino qidirish judayam oson:</b>\n` +
-                        `1️⃣ Kino nomini yozing (masalan: <i>Venom</i>)\n` +
-                        `2️⃣ Yoki kino kodini yuboring (masalan: <i>125</i>)\n\n` +
-                        `🚀 Qo'shimcha imkoniyatlarni pastki menyu orqali boshqaring.`,
-                        { parse_mode: 'HTML' }
-                    ).catch(() => {});
-                }
-            } catch (err) {
-                logger.error('Start GIF send error:', err);
-                await ctx.reply(`🎬 <b>FilmXBot</b>\n\n🔍 Kino nomini yoki kodini yuboring.`, { parse_mode: 'HTML' }).catch(() => {});
-            }
-
-            sendMainMenu(ctx);
+            await sendWelcome(ctx);
+            return sendMainMenu(ctx);
         } catch (error) {
-            logger.error('Start command error:', error);
+            logger.error('start:', error);
+            await sendMainMenu(ctx).catch(() => {});
+        }
+    });
+
+    // ═══ OBUNA TEKSHIRISH tugmasi ═══
+    bot.action('check_subscription', async (ctx) => {
+        try {
+            invalidateUserSubscription(ctx.from.id);
+            const status = await checkSubscription(ctx);
+            if (status === true) {
+                await ctx.answerCbQuery('✅').catch(() => {});
+                await ctx.deleteMessage().catch(() => {});
+                await ctx.reply(ctx.t('sub_success'), { parse_mode: 'HTML' });
+
+                const code = ctx.session?.pendingMovieCode;
+                if (code) {
+                    ctx.session.pendingMovieCode = null;
+                    const movie = await getMovieByCode(code);
+                    if (movie) {
+                        await sendMovie(ctx, movie, ctx.session?.user);
+                        return sendMainMenu(ctx, '👇 Menyu:');
+                    }
+                }
+                return sendMainMenu(ctx);
+            }
+            await ctx.answerCbQuery(ctx.t('sub_fail'), { show_alert: true });
+        } catch (error) {
+            ctx.answerCbQuery('❌').catch(() => {});
         }
     });
 
     // ═══ TIL TANLASH ═══
     bot.hears(['🇺🇿 O\'zbekcha', '🇷🇺 Русский', '🇬🇧 English'], async (ctx) => {
-        let lang = 'uz';
-        if (ctx.message.text.includes('Русский')) lang = 'ru';
-        else if (ctx.message.text.includes('English')) lang = 'en';
-
         try {
-            await User.updateOne({ telegramId: ctx.from.id }, { language: lang });
+            const text = ctx.message.text;
+            const lang = text.includes('Русский') ? 'ru' : text.includes('English') ? 'en' : 'uz';
+            if (!SUPPORTED_LANGUAGES.includes(lang)) return;
+
+            await updateUser(ctx.from.id, { $set: { language: lang } });
             if (ctx.session?.user) ctx.session.user.language = lang;
-            ctx.t = (key, params) => getTranslation(lang, key, params);
+            ctx.t = createTranslator(lang);
+
             await ctx.reply(ctx.t('lang_changed'), Markup.removeKeyboard());
-            sendMainMenu(ctx);
-        } catch (e) {
-            logger.error('Language change error:', e);
+            return sendMainMenu(ctx);
+        } catch (error) {
+            logger.error('language change:', error);
         }
     });
 
     // ═══ SOZLAMALAR ═══
-    bot.hears(['⚙️ Sozlamalar', '⚙️ Настройки', '⚙️ Settings'], (ctx) => {
-        ctx.reply(ctx.t('settings_title'), {
-            ...Markup.keyboard([
-                ['🇺🇿 O\'zbekcha', '🇷🇺 Русский', '🇬🇧 English'],
-                [ctx.t('menu_main')]
-            ]).resize()
-        });
-    });
+    bot.hears(menuMatcher('menu_settings'), (ctx) =>
+        ctx.reply(ctx.t('settings_title'), { parse_mode: 'HTML', ...buildSettingsKeyboard(ctx) }).catch(() => {})
+    );
 
     // ═══ BOSH MENYU ═══
-    bot.hears(['🏠 Bosh menyu', '🏠 Главное меню', '🏠 Main Menu'], (ctx) => sendMainMenu(ctx));
-
-    // ═══ STATISTIKA ═══
-    bot.hears(['📊 Mening statistikam', '📊 Моя статистика', '📊 My Stats'], async (ctx) => {
-        try {
-            const user = ctx.session?.user;
-            if (!user) return;
-            const isVip = user.vipUntil && new Date(user.vipUntil) > new Date();
-            const favCount = await Favorite.countDocuments({ user: user._id }).catch(() => 0);
-
-            let msg = `📊 <b>${ctx.t('menu_stats')}</b>\n\n`;
-            msg += `👤 <b>Ism:</b> ${user.firstName}\n`;
-            msg += `❤️ <b>Sevimlilar:</b> ${favCount} ta\n`;
-            msg += `🎬 <b>Ko'rilgan kinolar:</b> ${user.moviesWatched || 0} ta\n\n`;
-
-            if (isVip) {
-                const daysLeft = Math.ceil((new Date(user.vipUntil) - new Date()) / (1000 * 60 * 60 * 24));
-                msg += `💎 <b>VIP Status:</b> ✅ AKTIV\n📅 <b>Qolgan kunlar:</b> ${daysLeft} kun\n`;
-            } else {
-                msg += `👤 <b>Status:</b> Oddiy foydalanuvchi\n\n💎 <i>VIP bo'ling va ko'proq imkoniyatlarga ega bo'ling!</i>`;
-            }
-
-            const buttons = [];
-            if (!isVip) buttons.push([Markup.button.callback('💎 VIP Olish', 'vip_info')]);
-
-            await ctx.reply(msg, {
-                parse_mode: 'HTML',
-                ...(buttons.length > 0 ? Markup.inlineKeyboard(buttons) : {})
-            });
-        } catch (e) {
-            logger.error('Stats error:', e);
-        }
-    });
-
-    // ═══ OVOZ BERISH ═══
-    bot.hears(['🗳 Ovoz berish', '🗳 Голосование', '🗳 Vote'], async (ctx) => {
-        try {
-            if (!ctx.isVip()) return ctx.reply(ctx.t('vip_restricted'));
-            ctx.scene.enter('REQUEST_SCENE');
-        } catch (e) {
-            logger.error('Vote handler error:', e);
-        }
-    });
-
-    // ═══ OBUNA TEKSHIRUV CALLBACK ═══
-    bot.action('check_subscription', async (ctx) => {
-        try {
-            const subStatus = await checkSubscription(ctx);
-            if (subStatus === true) {
-                await ctx.deleteMessage().catch(() => {});
-                await ctx.reply(ctx.t('sub_success'), { parse_mode: 'HTML' });
-                
-                if (ctx.session?.pendingMovieCode) {
-                    const code = ctx.session.pendingMovieCode;
-                    ctx.session.pendingMovieCode = null;
-                    
-                    const movie = await Movie.findOne({ code }).lean();
-                    const user = ctx.session?.user;
-                    if (movie && user) {
-                        await sendMovie(ctx, movie, user);
-                        return;
-                    }
-                }
-                sendMainMenu(ctx);
-            } else {
-                await ctx.answerCbQuery(ctx.t('sub_fail'), { show_alert: true });
-            }
-        } catch (e) {
-            ctx.answerCbQuery('Error').catch(() => {});
-        }
-    });
+    bot.hears(menuMatcher('menu_main'), (ctx) => sendMainMenu(ctx));
 };
+
+export default setupStartCommand;

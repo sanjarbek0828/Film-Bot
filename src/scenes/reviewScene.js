@@ -1,98 +1,115 @@
 import { Scenes, Markup } from 'telegraf';
 import Movie from '../models/Movie.js';
-import User from '../models/User.js';
+import { updateUser } from '../services/userService.js';
+import { invalidateMovieCaches } from '../services/movieService.js';
+import { escapeHtml, movieTitle } from '../utils/html.js';
+import logger from '../utils/logger.js';
+
+/**
+ * Sharh (review) qo'shish wizardi.
+ *
+ * TUZATILGAN BUGLAR:
+ *  - `logger` import qilinmagan edi — xato yuz berganda `catch` bloki
+ *    "logger is not defined" bilan qayta yiqilardi (crash).
+ *  - Yetishmayotgan i18n kalitlar endi locales.js da mavjud.
+ *  - Sharh matni HTML-escape qilinadi.
+ *  - `totalComments` userService orqali (kesh sinxron).
+ */
 
 const reviewScene = new Scenes.WizardScene(
     'REVIEW_SCENE',
-    // Step 1: Rating
+    // Step 1: Baho
     async (ctx) => {
         try {
-            const movieCode = ctx.wizard.state.movieCode;
+            const movieCode = ctx.scene.state?.movieCode ?? ctx.wizard.state?.movieCode;
             if (!movieCode) return ctx.scene.leave();
-
-            const buttons = [
-                [Markup.button.callback('⭐️ 1', 'rate_1'), Markup.button.callback('⭐️ 2', 'rate_2'), Markup.button.callback('⭐️ 3', 'rate_3')],
-                [Markup.button.callback('⭐️ 4', 'rate_4'), Markup.button.callback('⭐️ 5', 'rate_5')],
-                [Markup.button.callback(ctx.t('cancel') || '❌ Cancel', 'cancel_review')]
-            ];
+            ctx.wizard.state.movieCode = movieCode;
 
             await ctx.reply(ctx.t('review_rating_prompt'), {
                 parse_mode: 'HTML',
-                ...Markup.inlineKeyboard(buttons)
+                ...Markup.inlineKeyboard([
+                    [1, 2, 3].map((n) => Markup.button.callback(`${n} ⭐️`, `rate_${n}`)),
+                    [4, 5].map((n) => Markup.button.callback(`${n} ⭐️`, `rate_${n}`)),
+                    [Markup.button.callback(ctx.t('cancel'), 'cancel_review')],
+                ]),
             });
             return ctx.wizard.next();
-        } catch (e) {
+        } catch (error) {
+            logger.error('review step1:', error);
             return ctx.scene.leave();
         }
     },
-    // Step 2: Comment
+    // Step 2: Sharh matnini kutish
     async (ctx) => {
         try {
-            if (ctx.callbackQuery) {
-                if (ctx.callbackQuery.data === 'cancel_review') {
-                    await ctx.answerCbQuery(ctx.t('cancel') || 'Cancelled');
-                    await ctx.editMessageText(ctx.t('review_cancel'));
-                    return ctx.scene.leave();
-                }
+            if (!ctx.callbackQuery) return;
+            const data = ctx.callbackQuery.data;
 
-                if (ctx.callbackQuery.data.startsWith('rate_')) {
-                    const rating = parseInt(ctx.callbackQuery.data.split('_')[1]);
-                    ctx.wizard.state.rating = rating;
-                    await ctx.answerCbQuery();
-                    await ctx.editMessageText(ctx.t('review_your_rating', { rating }), { parse_mode: 'HTML' });
-                    return ctx.wizard.next();
-                }
+            if (data === 'cancel_review') {
+                await ctx.answerCbQuery().catch(() => {});
+                await ctx.editMessageText(ctx.t('review_cancel')).catch(() => {});
+                return ctx.scene.leave();
             }
-            return; // Wait for valid callback
-        } catch (e) {
+
+            if (data.startsWith('rate_')) {
+                ctx.wizard.state.rating = parseInt(data.split('_')[1], 10);
+                await ctx.answerCbQuery().catch(() => {});
+                await ctx.editMessageText(ctx.t('review_your_rating', { rating: ctx.wizard.state.rating }), {
+                    parse_mode: 'HTML',
+                }).catch(() => {});
+                return ctx.wizard.next();
+            }
+        } catch (error) {
+            logger.error('review step2:', error);
             return ctx.scene.leave();
         }
     },
-    // Step 3: Save
+    // Step 3: Saqlash
     async (ctx) => {
         try {
-            if (!ctx.message || !ctx.message.text) {
-                return ctx.reply(ctx.t('review_text_error'));
-            }
+            if (!ctx.message?.text) return ctx.reply(ctx.t('review_text_error'));
 
-            const comment = ctx.message.text;
-            const rating = ctx.wizard.state.rating;
-            const movieCode = ctx.wizard.state.movieCode;
-            const userId = ctx.from.id;
-            const userName = ctx.from.first_name || 'Foydalanuvchi';
+            const comment = ctx.message.text.trim().slice(0, 1000);
+            const { rating, movieCode } = ctx.wizard.state;
 
-            // Save to DB
             const movie = await Movie.findOne({ code: movieCode });
-            if (movie) {
-                movie.reviews.push({
-                    userId,
-                    userName,
-                    rating,
-                    comment,
-                    date: new Date()
-                });
-                movie.ratingSum = (movie.ratingSum || 0) + rating;
-                movie.ratingCount = (movie.ratingCount || 0) + 1;
-                await movie.save();
-
-                // Update User stats
-                await User.findOneAndUpdate({ telegramId: userId }, { $inc: { totalComments: 1 } });
-
-                await ctx.reply(ctx.t('review_success', { rating, comment }), { parse_mode: 'HTML' });
-            } else {
+            if (!movie) {
                 await ctx.reply(ctx.t('not_found'));
+                return ctx.scene.leave();
             }
+
+            movie.reviews.push({
+                userId: ctx.from.id,
+                userName: ctx.from.first_name || 'Foydalanuvchi',
+                rating,
+                comment,
+                date: new Date(),
+            });
+            movie.ratingSum = (movie.ratingSum || 0) + rating;
+            movie.ratingCount = (movie.ratingCount || 0) + 1;
+            await movie.save();
+            invalidateMovieCaches(movieCode);
+
+            updateUser(ctx.from.id, { $inc: { totalComments: 1 } }).catch(() => {});
+
+            await ctx.reply(ctx.t('review_success', { rating, comment: escapeHtml(comment) }), { parse_mode: 'HTML' });
             return ctx.scene.leave();
-        } catch (e) {
-            logger.error('Review Save error:', e);
-            ctx.reply(ctx.t('error_general'));
+        } catch (error) {
+            logger.error('review save:', error);
+            await ctx.reply(ctx.t('error_general')).catch(() => {});
             return ctx.scene.leave();
         }
     }
 );
 
 reviewScene.command('cancel', async (ctx) => {
-    await ctx.reply(ctx.t('review_cancel'));
+    await ctx.reply(ctx.t('review_cancel')).catch(() => {});
+    return ctx.scene.leave();
+});
+
+reviewScene.action('cancel_review', async (ctx) => {
+    await ctx.answerCbQuery().catch(() => {});
+    await ctx.editMessageText(ctx.t('review_cancel')).catch(() => {});
     return ctx.scene.leave();
 });
 

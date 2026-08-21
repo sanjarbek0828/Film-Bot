@@ -2,8 +2,8 @@ import { Scenes, Markup } from 'telegraf';
 import logger from '../utils/logger.js';
 
 import PromoCode from '../models/PromoCode.js';
-import User from '../models/User.js';
-import AdminLog from '../models/AdminLog.js';
+import { logAdminAction } from '../models/AdminLog.js';
+import { extendVip } from '../services/userService.js';
 import { sendMainMenu } from '../utils/menuUtils.js';
 
 const redeemSchema = new Scenes.WizardScene(
@@ -72,31 +72,18 @@ const redeemSchema = new Scenes.WizardScene(
             promo.usedBy.push(ctx.from.id.toString());
             await promo.save();
 
-            // Foydalanuvchini topish va VIP berish
-            const user = await User.findOne({ telegramId: ctx.from.id });
+            const days = promo.rewardDays || 1; // Default 1 kun (24 soat)
 
+            // VIP berish (kesh sinxron)
+            const user = await extendVip(ctx.from.id, days, 'promo');
             if (!user) {
                 await ctx.reply('❌ Foydalanuvchi topilmadi.', Markup.removeKeyboard());
                 return ctx.scene.leave();
             }
 
-            const days = promo.rewardDays || 1; // Default 1 kun (24 soat)
-
-            // VIP vaqtini hisoblash
-            let currentVip = user.vipUntil && new Date(user.vipUntil) > new Date()
-                ? new Date(user.vipUntil)
-                : new Date();
-
-            user.vipUntil = new Date(currentVip.getTime() + days * 24 * 60 * 60 * 1000);
-            await user.save();
-
             // Log yozish
-            await AdminLog.create({
-                adminId: 'SYSTEM',
-                action: 'promo_redeem',
-                targetId: ctx.from.id,
-                details: `Redeemed ${inputCode} (+${days} days VIP). Remaining uses: ${promo.usageLimit - promo.usedBy.length}`
-            });
+            logAdminAction('SYSTEM', 'promo_redeem', ctx.from.id,
+                `Redeemed ${inputCode} (+${days} days VIP). Remaining uses: ${promo.usageLimit - promo.usedBy.length}`);
 
             // Muvaffaqiyat xabari
             const successMsg = `✅ <b>Tabriklaymiz!</b>\n\n` +

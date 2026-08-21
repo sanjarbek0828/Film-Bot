@@ -1,85 +1,75 @@
+import config from '../config/env.js';
+
 /**
- * Secure Logger Utility
- * Wraps console methods to redact sensitive information like tokens, IDs, and connection strings.
+ * Yengil, darajali (leveled) va xavfsiz logger.
+ *
+ * Eski versiya har bir log uchun butun obyektni rekursiv nusxalab, "id" kabi
+ * juda keng kalitlarni ham yashirar edi — bu ham sekin, ham debug qilishni
+ * imkonsiz qilardi. Bu versiya faqat haqiqiy maxfiy ma'lumotni yashiradi.
  */
 
-const SENSITIVE_KEYS = [
-    'token',
-    'password',
-    'pass',
-    'secret',
-    'key',
-    'authorization',
-    'mongo_uri',
-    'mongodb_uri',
-    'uri',
-    'connection_string',
-    'user_id',
-    'chat_id',
-    'id', // Aggressive
-    'uid',
-    'telegramid',
-    'telegram_id',
-    'channelid',
-    'channel_id',
-    'adminid',
-    'admin_id',
-    'partnerid',
-    'partner_id'
+const LEVELS = { error: 0, warn: 1, info: 2, debug: 3 };
+const activeLevel = LEVELS[config.logLevel] ?? LEVELS.info;
+
+const SECRET_KEYS = new Set([
+    'token', 'bot_token', 'bottoken',
+    'password', 'pass', 'passwd',
+    'secret', 'apikey', 'api_key', 'accesstoken', 'access_token',
+    'refreshtoken', 'refresh_token', 'authorization', 'auth',
+    'cookie', 'session', 'privatekey', 'private_key',
+    'mongodb_uri', 'mongouri', 'connection_string', 'dsn',
+]);
+
+// Bot tokeni va Mongo parolini matn ichidan topib yashiradi
+const INLINE_SECRETS = [
+    [/\b\d{8,12}:[A-Za-z0-9_-]{30,}\b/g, '[BOT_TOKEN]'],
+    [/(mongodb(?:\+srv)?:\/\/)[^:/@\s]+:[^@\s]+@/gi, '$1[CREDENTIALS]@'],
+    [/(Bearer\s+)[A-Za-z0-9._-]{10,}/gi, '$1[REDACTED]'],
 ];
 
-// Regex to find potential sensitive values in strings (like "Token: 12345")
-const SENSITIVE_REGEX = new RegExp(`(${SENSITIVE_KEYS.join('|')})[:\\s=_"']+\\s*([^\\s,}"']+)`, 'gi');
+const redactString = (str) => {
+    let out = str;
+    for (const [pattern, replacement] of INLINE_SECRETS) out = out.replace(pattern, replacement);
+    return out;
+};
 
-/**
- * Redacts sensitive data from an object recursively.
- * @param {any} input 
- * @returns {any} Redacted copy of the input
- */
-const redact = (input) => {
-    if (!input) return input;
+const redact = (input, depth = 0, seen = new WeakSet()) => {
+    if (input == null) return input;
+    if (typeof input === 'string') return redactString(input);
+    if (typeof input !== 'object') return input;
+    if (depth > 4) return '[Object]';
 
-    if (typeof input === 'string') {
-        return input.replace(SENSITIVE_REGEX, (match, key, value) => {
-            return `${key}: [REDACTED]`;
-        });
+    if (input instanceof Error) {
+        return `${input.name}: ${redactString(input.message)}${input.stack ? `\n${redactString(input.stack)}` : ''}`;
     }
+    if (seen.has(input)) return '[Circular]';
+    seen.add(input);
 
     if (Array.isArray(input)) {
-        return input.map(item => redact(item));
+        return input.slice(0, 50).map((item) => redact(item, depth + 1, seen));
     }
 
-    if (typeof input === 'object') {
-        const redactedObj = {};
-        for (const [key, value] of Object.entries(input)) {
-            const lowerKey = key.toLowerCase();
-            const isSensitive = SENSITIVE_KEYS.some(sensitiveKey => lowerKey.includes(sensitiveKey));
-
-            if (isSensitive) {
-                redactedObj[key] = '[REDACTED]';
-            } else {
-                redactedObj[key] = redact(value);
-            }
-        }
-        return redactedObj;
+    const out = {};
+    for (const [key, value] of Object.entries(input)) {
+        out[key] = SECRET_KEYS.has(key.toLowerCase()) ? '[REDACTED]' : redact(value, depth + 1, seen);
     }
+    return out;
+};
 
-    return input;
+const timestamp = () => new Date().toISOString().slice(11, 23);
+
+const emit = (level, icon, consoleFn, args) => {
+    if (LEVELS[level] > activeLevel) return;
+    consoleFn(`${icon} ${timestamp()}`, ...args.map((arg) => redact(arg)));
 };
 
 const logger = {
-    log: (...args) => {
-        console.log(...args.map(redact));
-    },
-    error: (...args) => {
-        console.error(...args.map(redact));
-    },
-    warn: (...args) => {
-        console.warn(...args.map(redact));
-    },
-    info: (...args) => {
-        console.log(...args.map(redact));
-    }
+    error: (...args) => emit('error', '❌', console.error, args),
+    warn: (...args) => emit('warn', '⚠️ ', console.warn, args),
+    info: (...args) => emit('info', 'ℹ️ ', console.log, args),
+    debug: (...args) => emit('debug', '🔍', console.log, args),
+    success: (...args) => emit('info', '✅', console.log, args),
+    log: (...args) => emit('info', 'ℹ️ ', console.log, args),
 };
 
 export default logger;

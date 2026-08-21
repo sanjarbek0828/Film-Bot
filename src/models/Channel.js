@@ -4,24 +4,18 @@ const channelSchema = new mongoose.Schema({
     channelId: {
         type: String,
         required: true,
-        unique: true
+        unique: true,
     },
     name: {
         type: String,
-        required: true
+        required: true,
     },
     inviteLink: {
         type: String,
-        required: true
+        required: true,
     },
-    addedBy: {
-        type: String
-    },
-    createdAt: {
-        type: Date,
-        default: Date.now
-    }
-});
+    addedBy: String,
+}, { timestamps: true });
 
 const Channel = mongoose.model('Channel', channelSchema);
 export default Channel;

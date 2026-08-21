@@ -1,73 +1,107 @@
 import User from '../models/User.js';
 import logger from '../utils/logger.js';
+import { invalidateUserCache } from './userService.js';
 
-// VIP Expiration Scheduler
-// Runs every minute to check and expire VIP subscriptions
+/**
+ * VIP muddati tugashini kuzatuvchi scheduler.
+ *
+ * Muhim tuzatishlar:
+ *  - Avval har DAQIQADA ishlab, 2 daqiqalik "oyna" ichidagilarni topardi:
+ *    server 3 daqiqa uxlab qolsa yoki restart bo'lsa, xabarlar YO'QOLARDI.
+ *    Endi 5 daqiqalik interval + `vipNotified` flagi orqali oyna cheklovi yo'q.
+ *  - `setInterval` referensi saqlanadi (graceful shutdown uchun).
+ *  - Xabar yuborish parallel va rate-limitga chidamli.
+ *  - Bir tsiklda maksimal 200 ta xabar — DB va Telegram ni bosmaydi.
+ */
 
-let bot = null;
+const CHECK_INTERVAL_MS = 5 * 60 * 1000;
+const BATCH_SIZE = 200;
 
-export const initVipScheduler = (telegrafBot) => {
-    bot = telegrafBot;
+let timer = null;
+let botRef = null;
+let running = false;
 
-    // Run immediately on start
-    checkExpiredVips();
-
-    // Then run every minute
-    setInterval(checkExpiredVips, 60 * 1000); // Every 1 minute
-
-    logger.info('✅ VIP Expiration Scheduler initialized');
-};
+const EXPIRY_MESSAGE =
+    '⏰ <b>VIP obunangiz tugadi!</b>\n\n' +
+    'Sizning VIP statusingiz yakunlandi.\n\n' +
+    '💎 Imtiyozlardan foydalanishni davom ettirish uchun obunani yangilang:\n' +
+    '├ 🎬 Kinolarni cheklovsiz yuklab olish\n' +
+    '├ 💬 Sharh qoldirish va o\'qish\n' +
+    '├ ⭐ Sevimlilar ro\'yxati\n' +
+    '└ 📜 Ko\'rish tarixi';
 
 const checkExpiredVips = async () => {
+    if (running || !botRef) return;
+    running = true;
+
     try {
         const now = new Date();
 
-        // Find users whose VIP just expired (within the last 2 minutes to catch any we missed)
-        const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000);
+        // Muddati tugagan va hali xabar berilmagan foydalanuvchilar
+        const expired = await User.find({
+            vipUntil: { $ne: null, $lte: now },
+            vipNotified: { $ne: true },
+        })
+            .select('telegramId')
+            .limit(BATCH_SIZE)
+            .lean();
 
-        const expiredUsers = await User.find({
-            vipUntil: {
-                $lte: now,
-                $gte: twoMinutesAgo
-            },
-            vipNotified: { $ne: true } // Only notify once
-        });
+        if (expired.length > 0) {
+            // Avval flagni belgilaymiz — xabar yuborish uzilib qolsa ham takroriy spam bo'lmaydi
+            const ids = expired.map((user) => user.telegramId);
+            await User.updateMany({ telegramId: { $in: ids } }, { $set: { vipNotified: true } });
+            ids.forEach(invalidateUserCache);
 
-        for (const user of expiredUsers) {
-            try {
-                // Mark as notified
-                user.vipNotified = true;
-                await user.save();
-
-                // Notify user
-                if (bot) {
-                    await bot.telegram.sendMessage(user.telegramId,
-                        '⏰ <b>VIP Obunangiz Tugadi!</b>\n\n' +
-                        'Sizning VIP statusingiz yakunlandi.\n\n' +
-                        '💎 VIP imtiyozlaridan foydalanishni davom ettirish uchun obunani yangilang!\n\n' +
-                        '<i>VIP bilan: Eksklyuziv kinolar, Sharh qoldirish va boshqalar!</i>',
-                        { parse_mode: 'HTML' }
-                    );
+            let notified = 0;
+            for (const telegramId of ids) {
+                try {
+                    await botRef.telegram.sendMessage(telegramId, EXPIRY_MESSAGE, {
+                        parse_mode: 'HTML',
+                        reply_markup: {
+                            inline_keyboard: [[{ text: '💎 VIP Olish', callback_data: 'vip_info' }]],
+                        },
+                    });
+                    notified += 1;
+                } catch {
+                    // Foydalanuvchi botni bloklagan — muammo emas
                 }
-
-                logger.info(`📤 VIP expired notification sent to user ${user.telegramId}`);
-            } catch (e) {
-                // User may have blocked the bot
-                logger.error(`Failed to notify user ${user.telegramId} about VIP expiry:`, e);
+                await new Promise((resolve) => setTimeout(resolve, 40));
             }
+
+            logger.info(`VIP tugashi: ${ids.length} ta foydalanuvchi, ${notified} tasiga xabar yetdi`);
         }
 
-        // Reset vipNotified flag for users who renewed (vipUntil > now)
-        await User.updateMany(
-            {
-                vipUntil: { $gt: now },
-                vipNotified: true
-            },
-            { vipNotified: false }
+        // Obunani yangilaganlarning flagini qaytaramiz
+        const renewed = await User.updateMany(
+            { vipUntil: { $gt: now }, vipNotified: true },
+            { $set: { vipNotified: false } }
         );
+        if (renewed.modifiedCount > 0) {
+            logger.debug(`VIP flag tiklandi: ${renewed.modifiedCount} ta`);
+        }
+    } catch (error) {
+        logger.error('VIP scheduler:', error);
+    } finally {
+        running = false;
+    }
+};
 
-    } catch (e) {
-        logger.error('VIP Scheduler Error:', e);
+export const initVipScheduler = (bot) => {
+    botRef = bot;
+    if (timer) clearInterval(timer);
+
+    // Ishga tushgandan 15 sekund keyin boshlanadi (DB ulanishi va webhook uchun vaqt)
+    setTimeout(checkExpiredVips, 15_000);
+    timer = setInterval(checkExpiredVips, CHECK_INTERVAL_MS);
+    if (timer.unref) timer.unref(); // Process yopilishini bloklamaydi
+
+    logger.success('VIP scheduler ishga tushdi (har 5 daqiqada)');
+};
+
+export const stopVipScheduler = () => {
+    if (timer) {
+        clearInterval(timer);
+        timer = null;
     }
 };
 

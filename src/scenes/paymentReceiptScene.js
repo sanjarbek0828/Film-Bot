@@ -1,5 +1,7 @@
 import { Scenes, Markup } from 'telegraf';
 import logger from '../utils/logger.js';
+import { getPrimaryAdminId } from '../utils/adminHelper.js';
+import { escapeHtml } from '../utils/html.js';
 
 const paymentReceiptScene = new Scenes.WizardScene(
     'PAYMENT_RECEIPT_SCENE',
@@ -53,14 +55,14 @@ const paymentReceiptScene = new Scenes.WizardScene(
         if (ctx.message && ctx.message.photo) {
             // Receipt received
             const photoId = ctx.message.photo[ctx.message.photo.length - 1].file_id;
-            const adminId = process.env.ADMIN_ID ? process.env.ADMIN_ID.split(',')[0].trim() : null;
-            
+            const adminId = getPrimaryAdminId();
+
             if (!adminId) {
                 await ctx.reply("System error: Admin is not configured. Payment feature is disabled.");
                 return ctx.scene.leave();
             }
 
-            const username = ctx.from.username ? `@${ctx.from.username}` : ctx.from.first_name;
+            const username = ctx.from.username ? `@${ctx.from.username}` : escapeHtml(ctx.from.first_name || 'User');
             const userId = ctx.from.id;
             const days = ctx.wizard.state.days;
 

@@ -1,6 +1,8 @@
 import { Scenes, Markup } from 'telegraf';
 import User from '../models/User.js';
 import logger from '../utils/logger.js';
+import { getPrimaryAdminId } from '../utils/adminHelper.js';
+import { escapeHtml } from '../utils/html.js';
 
 const requestScene = new Scenes.WizardScene(
     'REQUEST_SCENE',
@@ -34,10 +36,10 @@ const requestScene = new Scenes.WizardScene(
             const name = user.first_name || user.username || 'User';
 
             // Send to Admin
-            const adminId = process.env.ADMIN_ID ? process.env.ADMIN_ID.split(',')[0].trim() : null;
+            const adminId = getPrimaryAdminId();
             if (adminId) {
-                const adminMsg = ctx.t('request_admin_notify', { name, id: user.id, movie: movieName });
-                await ctx.telegram.sendMessage(adminId, adminMsg, { parse_mode: 'HTML' });
+                const adminMsg = ctx.t('request_admin_notify', { name: escapeHtml(name), id: user.id, movie: escapeHtml(movieName) });
+                await ctx.telegram.sendMessage(adminId, adminMsg, { parse_mode: 'HTML' }).catch(() => {});
             }
 
             await ctx.reply(ctx.t('request_success'), { parse_mode: 'HTML' });

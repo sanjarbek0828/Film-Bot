@@ -1,7 +1,9 @@
 import { Telegraf, Scenes, session } from 'telegraf';
-import dotenv from 'dotenv';
+import config from '../config/env.js';
 import logger from '../utils/logger.js';
 import { authMiddleware } from './middleware.js';
+
+// Scenes
 import addMovieScene from '../scenes/addMovieScene.js';
 import bulkAddMovieScene from '../scenes/bulkAddMovieScene.js';
 import broadcastScene from '../scenes/broadcastScene.js';
@@ -10,7 +12,7 @@ import reviewScene from '../scenes/reviewScene.js';
 import requestScene from '../scenes/requestScene.js';
 import reportScene from '../scenes/reportScene.js';
 import promoWizard from '../scenes/promoScene.js';
-import redeemSchema from '../scenes/promoRedeemScene.js';
+import redeemScene from '../scenes/promoRedeemScene.js';
 import editMovieScene from '../scenes/editMovieScene.js';
 import autoPostSettingsScene from '../scenes/autoPostSettingsScene.js';
 import mandatorySubscriptionScene from '../scenes/mandatorySubscriptionScene.js';
@@ -21,26 +23,30 @@ import startGifScene from '../scenes/startGifScene.js';
 import addFavCodeScene from '../scenes/addFavCodeScene.js';
 import paymentReceiptScene from '../scenes/paymentReceiptScene.js';
 import bulkEditMovieScene from '../scenes/bulkEditMovieScene.js';
+
+// Command setups
 import { setupAdminCommands } from '../commands/admin.js';
 import { setupStartCommand } from '../commands/start.js';
 import { setupUserCommands } from '../commands/user.js';
 import { setupCategoryCommands, setupInlineSearch } from '../commands/category.js';
-import { setupChannelGuard } from '../handlers/channelGuard.js';
 import { initVipScheduler } from '../services/vipScheduler.js';
 
-// Setup Scenes
+const bot = new Telegraf(config.botToken, {
+    handlerTimeout: 90_000, // Uzoq broadcastlar uchun (default 90s, aniq belgilaymiz)
+});
+
 const stage = new Scenes.Stage([
-    addMovieScene, 
+    addMovieScene,
     bulkAddMovieScene,
-    broadcastScene, 
-    vipScene, 
-    reviewScene, 
-    requestScene, 
-    reportScene, 
-    promoWizard, 
-    redeemSchema, 
-    editMovieScene, 
-    autoPostSettingsScene, 
+    broadcastScene,
+    vipScene,
+    reviewScene,
+    requestScene,
+    reportScene,
+    promoWizard,
+    redeemScene,
+    editMovieScene,
+    autoPostSettingsScene,
     mandatorySubscriptionScene,
     userProfileScene,
     globalVipScene,
@@ -48,34 +54,32 @@ const stage = new Scenes.Stage([
     startGifScene,
     addFavCodeScene,
     paymentReceiptScene,
-    bulkEditMovieScene
+    bulkEditMovieScene,
 ]);
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
+// Global /cancel — istalgan scene'dan chiqish
+stage.command('cancel', async (ctx) => {
+    await ctx.scene.leave().catch(() => {});
+    await ctx.reply('❌ Bekor qilindi.').catch(() => {});
+});
 
 bot.use(session());
-// Custom middleware
 bot.use(authMiddleware);
-
 bot.use(stage.middleware());
 
-// Setup Commands
-setupAdminCommands(bot);
+// Buyruqlarni ulash. Matn handleri (user.js) ohirida bo'lishi shart!
 setupStartCommand(bot);
+setupAdminCommands(bot);
 setupCategoryCommands(bot);
-setupUserCommands(bot); // User commands should be last (has text handler)
 setupInlineSearch(bot);
-setupChannelGuard(bot);
+setupUserCommands(bot);
 
-// Initialize VIP Expiration Scheduler
 initVipScheduler(bot);
 
-    // Check Subscription moved exclusively to start.js to run with proper Delete Message!
-
-// Error handling
-bot.catch((err, ctx) => {
-    logger.error(`Ooops, encountered an error for ${ctx.updateType}`, err);
-    ctx.reply("❌ Xatolik yuz berdi. Iltimos keyinroq urinib ko'ring.");
+// Global xato ushlagich — bu yerda `ctx.reply` chaqirmaymiz
+// (bloklangan chatlarda yana xato bo'lib, cheksiz loop kelib chiqmasligi uchun)
+bot.catch((error, ctx) => {
+    logger.error(`Bot xatosi (${ctx?.updateType}):`, error);
 });
 
 export default bot;

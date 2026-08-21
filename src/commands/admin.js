@@ -1,36 +1,31 @@
 import { Markup } from 'telegraf';
 import { isAdmin } from '../utils/adminHelper.js';
+import config from '../config/env.js';
 import logger from '../utils/logger.js';
-import { countMovies, deleteMovie, getMovieByCode, getAllMovies, getTopMovies } from '../services/movieService.js';
+import { countMovies, deleteMovie, getTopMovies } from '../services/movieService.js';
 import { toggleSubscription } from '../services/subscriptionService.js';
+import { extendVip, removeVip, setBanned } from '../services/userService.js';
+import { resetUserCaches } from '../bot/middleware.js';
+import { broadcast } from '../utils/broadcaster.js';
+import { escapeHtml } from '../utils/html.js';
 import User from '../models/User.js';
 import Movie from '../models/Movie.js';
 import Channel from '../models/Channel.js';
 import Config from '../models/Config.js';
-import AdminLog from '../models/AdminLog.js';
-import { sendMainMenu } from '../utils/menuUtils.js';
+import AdminLog, { logAdminAction } from '../models/AdminLog.js';
 
 export const setupAdminCommands = (bot) => {
-    const adminCheck = async (ctx) => {
-        try {
-            // Super Admin (Env)
-            if (ctx.from?.id && isAdmin(ctx.from.id)) return true;
+    const adminCheck = (ctx) => Boolean(ctx.isAdmin);
+    const superAdminCheck = (ctx) => Boolean(ctx.isSuperAdmin);
 
-            // Database Admin (Session'dan tekshirish — qo'shimcha DB so'rov YO'Q)
-            const user = ctx.session?.user;
-            if (user && (user.role === 'admin' || user.role === 'superadmin')) return true;
-
-            return false;
-        } catch (e) {
-            return false;
-        }
-    };
+    // Admin ID lar (ban himoyasi uchun) — telegramId Number bo'lgani uchun raqamli
+    const adminIdStrings = config.adminIds;
 
 
     // Admin panel entry
     bot.command('admin', async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return;
+            if (!adminCheck(ctx)) return;
             const buttons = [
                 [Markup.button.callback('➕ Bitta kino qo\'shish', 'admin_add_movie'), Markup.button.callback('📚 Ommaviy qo\'shish', 'admin_bulk_add')],
                 [Markup.button.callback('📊 Statistika', 'admin_stats'), Markup.button.callback('📢 Reklama', 'admin_broadcast')],
@@ -62,7 +57,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action('admin_add_movie', async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
             await ctx.answerCbQuery();
             return ctx.scene.enter('ADD_MOVIE_SCENE');
         } catch (e) { }
@@ -70,7 +65,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action('admin_bulk_add', async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
             await ctx.answerCbQuery();
             return ctx.scene.enter('BULK_ADD_MOVIE_SCENE');
         } catch (e) { }
@@ -78,7 +73,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action('admin_broadcast', async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
             await ctx.answerCbQuery();
             return ctx.scene.enter('BROADCAST_SCENE');
         } catch (e) { }
@@ -86,7 +81,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action('admin_vip', async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
             await ctx.answerCbQuery();
             return ctx.scene.enter('VIP_SCENE');
         } catch (e) { }
@@ -94,7 +89,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action('admin_start_gif', async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
             await ctx.answerCbQuery();
             return ctx.scene.enter('START_GIF_SCENE');
         } catch (e) { }
@@ -102,7 +97,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action('admin_bulk_edit', async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
             await ctx.answerCbQuery();
             return ctx.scene.enter('BULK_EDIT_MOVIE_SCENE');
         } catch (e) { }
@@ -110,7 +105,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action('admin_global_vip', async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
             await ctx.answerCbQuery();
             return ctx.scene.enter('GLOBAL_VIP_SCENE');
         } catch (e) { }
@@ -118,7 +113,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action('admin_edit_movie', async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
             await ctx.answerCbQuery();
             return ctx.scene.enter('EDIT_MOVIE_SCENE');
         } catch (e) { }
@@ -126,7 +121,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action('admin_autopost', async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
             await ctx.answerCbQuery();
             return ctx.scene.enter('AUTO_POST_SETTINGS_SCENE');
         } catch (e) { }
@@ -134,7 +129,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action('admin_subscription', async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
             await ctx.answerCbQuery();
             return ctx.scene.enter('MANDATORY_SUBSCRIPTION_SCENE');
         } catch (e) { }
@@ -142,7 +137,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action('admin_promo', async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
             await ctx.answerCbQuery();
             return ctx.scene.enter('PROMO_WIZARD_SCENE');
         } catch (e) {
@@ -152,7 +147,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action('admin_user_profile', async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
             await ctx.answerCbQuery();
             return ctx.scene.enter('USER_PROFILE_SCENE');
         } catch (e) {
@@ -163,7 +158,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action('admin_direct_message', async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
             await ctx.answerCbQuery();
             return ctx.scene.enter('DIRECT_MESSAGE_SCENE');
         } catch (e) {
@@ -172,7 +167,7 @@ export const setupAdminCommands = (bot) => {
     });
 
     bot.action('admin_stats', async (ctx) => {
-        if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
         try {
             await ctx.answerCbQuery();
 
@@ -212,7 +207,7 @@ export const setupAdminCommands = (bot) => {
     });
 
     bot.action('admin_delete_movie', async (ctx) => {
-        if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
         try {
             await ctx.answerCbQuery();
             const movies = await Movie.find().sort({ createdAt: -1 }).limit(10);
@@ -233,7 +228,7 @@ export const setupAdminCommands = (bot) => {
     });
 
     bot.action('admin_top_movies', async (ctx) => {
-        if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
         try {
             await ctx.answerCbQuery();
             const movies = await getTopMovies(10);
@@ -250,7 +245,7 @@ export const setupAdminCommands = (bot) => {
     });
 
     bot.action('admin_movies_list', async (ctx) => {
-        if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
         try {
             await ctx.answerCbQuery();
             const movies = await Movie.find().sort({ createdAt: -1 }).limit(20);
@@ -267,7 +262,7 @@ export const setupAdminCommands = (bot) => {
     });
 
     bot.action('admin_users_list', async (ctx) => {
-        if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
         try {
             await ctx.answerCbQuery();
             const users = await User.find().sort({ createdAt: -1 }).limit(20);
@@ -285,7 +280,7 @@ export const setupAdminCommands = (bot) => {
     });
 
     bot.action('admin_vip_remove_ui', async (ctx) => {
-        if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
         try {
             await ctx.answerCbQuery();
             const users = await User.find({ vipUntil: { $gt: new Date() } }).limit(10);
@@ -306,11 +301,11 @@ export const setupAdminCommands = (bot) => {
     });
 
     bot.action('admin_ban_unban', async (ctx) => {
-        if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
         try {
             await ctx.answerCbQuery();
 
-            const recentUsers = await User.find({ telegramId: { $nin: process.env.ADMIN_ID.split(",").map(id => id.trim()) } })
+            const recentUsers = await User.find({ telegramId: { $nin: adminIdStrings } })
                 .sort({ _id: -1 })
                 .limit(10);
 
@@ -334,16 +329,12 @@ export const setupAdminCommands = (bot) => {
     });
 
     bot.action(/unban_user_(\d+)/, async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const targetId = parseInt(ctx.match[1]);
-            await User.findOneAndUpdate({ telegramId: targetId }, { isBanned: false }, { new: true });
-            await AdminLog.create({
-                adminId: ctx.from.id,
-                action: 'unban_user_ui',
-                targetId: targetId,
-                details: 'Unbanned via UI'
-            });
+            await setBanned(targetId, false);
+            resetUserCaches(targetId);
+            logAdminAction(ctx.from.id, 'unban_user_ui', targetId, 'Unbanned via UI');
             await ctx.answerCbQuery('✅ Unban qilindi');
             await ctx.editMessageText(`✅ <b>Blok olib tashlandi:</b> <code>${targetId}</code>`, { parse_mode: 'HTML' });
         } catch (e) {
@@ -353,7 +344,7 @@ export const setupAdminCommands = (bot) => {
     });
 
     bot.action('admin_admins', async (ctx) => {
-        if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌');
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌');
         try {
             await ctx.answerCbQuery();
             const admins = await User.find({ role: { $in: ['admin', 'superadmin'] } });
@@ -413,7 +404,7 @@ export const setupAdminCommands = (bot) => {
 
     // Handle Stats
     bot.hears('📊 Statistika', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const userCount = await User.countDocuments().catch(() => 0);
             const bannedCount = await User.countDocuments({ isBanned: true }).catch(() => 0);
@@ -442,7 +433,7 @@ export const setupAdminCommands = (bot) => {
 
     // Handle Delete Movie
     bot.hears('🗑️ Kino o\'chirish', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const movies = await Movie.find().sort({ createdAt: -1 }).limit(10);
 
@@ -467,7 +458,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action(/delete_(\d+)/, async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌ Ruxsat yo\'q');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌ Ruxsat yo\'q');
             const code = parseInt(ctx.match[1]);
             const deleted = await deleteMovie(code);
             if (deleted) {
@@ -495,7 +486,7 @@ export const setupAdminCommands = (bot) => {
 
     // Handle Movies List
     bot.hears('📝 Kinolar ro\'yxati', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const movies = await Movie.find().sort({ createdAt: -1 }).limit(20);
             if (!movies || movies.length === 0) return ctx.reply('📭 Kinolar yo\'q.');
@@ -513,7 +504,7 @@ export const setupAdminCommands = (bot) => {
 
     // Handle Users List
     bot.hears('👥 Foydalanuvchilar', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const users = await User.find().sort({ createdAt: -1 }).limit(20);
             const total = await User.countDocuments().catch(() => 0);
@@ -532,7 +523,7 @@ export const setupAdminCommands = (bot) => {
 
     // Handle Ban/Unban
     bot.hears('🚫 Ban / Unban', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             ctx.reply('🚫 <b>Ban/Unban qilish</b>\n\nFoydalanuvchi ID raqamini yuboring:\n\n/ban 123456789\n/unban 123456789', {
                 parse_mode: 'HTML'
@@ -542,7 +533,7 @@ export const setupAdminCommands = (bot) => {
 
     // Handle Top Movies
     bot.hears('⭐ Top kinolar', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const movies = await getTopMovies(10);
             if (!movies || movies.length === 0) return ctx.reply('📭 Kinolar yo\'q.');
@@ -575,14 +566,14 @@ export const setupAdminCommands = (bot) => {
 
     // Ban User (Interactive & Direct)
     bot.command('ban', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const parts = ctx.message.text.split(' ');
             const telegramId = parseInt(parts[1]);
 
             // INTERACTIVE MODE: No ID provided
             if (!telegramId) {
-                const recentUsers = await User.find({ isBanned: false, telegramId: { $nin: process.env.ADMIN_ID.split(",").map(id => id.trim()) } })
+                const recentUsers = await User.find({ isBanned: false, telegramId: { $nin: adminIdStrings } })
                     .sort({ _id: -1 }) // Newest first
                     .limit(10);
 
@@ -602,24 +593,14 @@ export const setupAdminCommands = (bot) => {
 
             // 🛡 SECURITY: Protect Super Admin
             if (isAdmin(telegramId)) {
-                // TREASON: Admin tried to ban Super Admin
-                await User.findOneAndUpdate({ telegramId: ctx.from.id }, { role: 'user' });
-                return ctx.reply('🚨 <b>XAVFSIZLIK TIZIMI:</b>\n\nSiz Bosh Adminni bloklamoqchi bo\'ldingiz. Bu taqiqlangan!\n\n❌ <b>Sizning Admin huquqingiz olib tashlandi.</b>', { parse_mode: 'HTML' });
+                return ctx.reply('❌ <b>Bosh Adminni bloklab bo\'lmaydi!</b>', { parse_mode: 'HTML' });
             }
 
-            const user = await User.findOneAndUpdate(
-                { telegramId },
-                { isBanned: true },
-                { new: true }
-            );
+            const user = await setBanned(telegramId, true, { reason: 'command' });
+            resetUserCaches(telegramId);
             if (user) {
-                await AdminLog.create({
-                    adminId: ctx.from.id,
-                    action: 'ban_user',
-                    targetId: telegramId,
-                    details: 'Banned via command'
-                });
-                ctx.reply(`🚫 <b>Bloklandi:</b> ${user.firstName || user.username || telegramId}`, { parse_mode: 'HTML' });
+                logAdminAction(ctx.from.id, 'ban_user', telegramId, 'Banned via command');
+                ctx.reply(`🚫 <b>Bloklandi:</b> ${escapeHtml(user.firstName || user.username || String(telegramId))}`, { parse_mode: 'HTML' });
             } else {
                 ctx.reply('❌ Foydalanuvchi topilmadi.');
             }
@@ -631,30 +612,21 @@ export const setupAdminCommands = (bot) => {
 
     // Handle Ban Action (Interactive)
     bot.action(/ban_user_(\d+)/, async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const targetId = parseInt(ctx.match[1]);
 
-            // 🛡 SECURITY: Protect Super Admin
             if (isAdmin(targetId)) {
                 return ctx.answerCbQuery('❌ Super Adminni ban qilib bo\'lmaydi!', { show_alert: true });
             }
 
-            const user = await User.findOneAndUpdate(
-                { telegramId: targetId },
-                { isBanned: true },
-                { new: true }
-            );
+            const user = await setBanned(targetId, true, { reason: 'ui' });
+            resetUserCaches(targetId);
 
             if (user) {
-                await AdminLog.create({
-                    adminId: ctx.from.id,
-                    action: 'ban_user_ui',
-                    targetId: targetId,
-                    details: 'Banned via UI'
-                });
+                logAdminAction(ctx.from.id, 'ban_user_ui', targetId, 'Banned via UI');
                 await ctx.answerCbQuery(`🚫 ${user.firstName} bloklandi!`);
-                await ctx.editMessageText(`✅ <b>Bloklandi:</b> ${user.firstName} (ID: <code>${targetId}</code>)`, { parse_mode: 'HTML' });
+                await ctx.editMessageText(`✅ <b>Bloklandi:</b> ${escapeHtml(user.firstName || String(targetId))} (ID: <code>${targetId}</code>)`, { parse_mode: 'HTML' });
             } else {
                 ctx.answerCbQuery('❌ Topilmadi');
             }
@@ -666,25 +638,17 @@ export const setupAdminCommands = (bot) => {
 
     // /unban (Interactive) ...
     bot.command('unban', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const parts = ctx.message.text.split(' ');
             const telegramId = parseInt(parts[1]);
             if (!telegramId) return ctx.reply('⚠️ Format: /unban 123456789');
 
-            const user = await User.findOneAndUpdate(
-                { telegramId },
-                { isBanned: false, bannedUntil: null },
-                { new: true }
-            );
+            const user = await setBanned(telegramId, false);
+            resetUserCaches(telegramId);
             if (user) {
-                await AdminLog.create({
-                    adminId: ctx.from.id,
-                    action: 'unban_user',
-                    targetId: telegramId,
-                    details: 'Unbanned via command'
-                });
-                ctx.reply(`✅ <b>Blok olib tashlandi:</b> ${user.firstName || user.username || telegramId}`, { parse_mode: 'HTML' });
+                logAdminAction(ctx.from.id, 'unban_user', telegramId, 'Unbanned via command');
+                ctx.reply(`✅ <b>Blok olib tashlandi:</b> ${escapeHtml(user.firstName || user.username || String(telegramId))}`, { parse_mode: 'HTML' });
             } else {
                 ctx.reply('❌ Foydalanuvchi topilmadi.');
             }
@@ -695,7 +659,7 @@ export const setupAdminCommands = (bot) => {
     });
 
     bot.command('unbanall', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const res = await User.updateMany({ isBanned: true }, { isBanned: false, bannedUntil: null });
             ctx.reply(`✅ <b>Barcha foydalanuvchilar blokdan chiqarildi!</b>\n\nJami: ${res.modifiedCount} ta foydalanuvchi.`, { parse_mode: 'HTML' });
@@ -705,6 +669,7 @@ export const setupAdminCommands = (bot) => {
     });
 
     bot.action('delete_last_broadcast', async (ctx) => {
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌').catch(() => {});
         try {
             await ctx.answerCbQuery('O\'chirish boshlandi...').catch(() => { });
             const users = await User.find({ lastBroadcastMsgId: { $ne: null } });
@@ -714,26 +679,21 @@ export const setupAdminCommands = (bot) => {
 
             await ctx.reply(`🗑 <b>Massaviy o'chirish boshlandi!</b>\n\nJami <b>${users.length} ta</b> foydalanuvchining chatidan botning oxirgi xabari (reklamasi) olib tashlanmoqda...`, { parse_mode: 'HTML' });
 
-            let success = 0;
-            let failed = 0;
-            (async () => {
-                for (let i = 0; i < users.length; i++) {
-                    const u = users[i];
-                    try {
-                        await ctx.telegram.deleteMessage(u.telegramId, u.lastBroadcastMsgId);
-                        success++;
-                    } catch (e) {
-                        failed++;
-                    }
-                    u.lastBroadcastMsgId = null;
-                    await u.save();
+            const recipients = users.map((u) => ({ telegramId: u.telegramId, msgId: u.lastBroadcastMsgId }));
+            const byId = new Map(recipients.map((r) => [r.telegramId, r.msgId]));
 
-                    await new Promise(r => setTimeout(r, 40)); // Rate limit himoyasi
-                }
-                try {
-                    await ctx.reply(`✅ <b>O'chirish amaliyoti Muvaffaqiyatli yakunlandi!</b>\n\n🗑 O'chirildi: ${success}\n❌ O'chirib bo'lmadi: ${failed} (foydalanuvchi o'z vaqtida e'lonni o'chirgan yoki qoidalar ruxsat bermaydi)`, { parse_mode: 'HTML' });
-                } catch (e) { }
-            })();
+            const result = await broadcast({
+                recipients: recipients.map((r) => r.telegramId),
+                send: (userId) => ctx.telegram.deleteMessage(userId, byId.get(userId)),
+            });
+
+            // Barcha lastBroadcastMsgId ni bitta bulk operatsiyada tozalaymiz
+            await User.updateMany({ lastBroadcastMsgId: { $ne: null } }, { $set: { lastBroadcastMsgId: null } }).catch(() => {});
+
+            await ctx.reply(
+                `✅ <b>O'chirish yakunlandi!</b>\n\n🗑 O'chirildi: ${result.sent}\n❌ O'chirib bo'lmadi: ${result.failed + result.blocked}`,
+                { parse_mode: 'HTML' }
+            ).catch(() => {});
         } catch (e) {
             logger.error('Delete broadcast error:', e);
         }
@@ -743,7 +703,7 @@ export const setupAdminCommands = (bot) => {
 
     // /addvip user_id days
     bot.command('addvip', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const parts = ctx.message.text.split(' ');
             const telegramId = parseInt(parts[1]);
@@ -753,35 +713,14 @@ export const setupAdminCommands = (bot) => {
                 return ctx.reply('⚠️ Format: /addvip 123456789 30');
             }
 
-            const vipUntil = new Date();
-            vipUntil.setDate(vipUntil.getDate() + days);
-
-            const user = await User.findOneAndUpdate(
-                { telegramId },
-                {
-                    vipUntil,
-                    vipAddedBy: ctx.from.id.toString(),
-                    vipAddedAt: new Date()
-                },
-                { new: true }
-            );
+            const user = await extendVip(telegramId, days, ctx.from.id);
+            resetUserCaches(telegramId);
 
             if (user) {
-                await AdminLog.create({
-                    adminId: ctx.from.id,
-                    action: 'add_vip',
-                    targetId: telegramId,
-                    details: `Added VIP for ${days} days`
-                });
-
-                const formattedDate = vipUntil.toISOString().split('T')[0];
+                logAdminAction(ctx.from.id, 'add_vip', telegramId, `Added VIP for ${days} days`);
+                const formattedDate = new Date(user.vipUntil).toISOString().split('T')[0];
                 ctx.reply(`💎 <b>VIP berildi!</b>\n\n👤 User: <code>${telegramId}</code>\n📅 Tugash muddati: ${formattedDate}`, { parse_mode: 'HTML' });
-                // Notify user? - Optional, but good UX.
-                try {
-                    await ctx.telegram.sendMessage(telegramId, `🎉 <b>Tabriklaymiz!</b>\n\nSizga ${days} kunga VIP status berildi!\n📅 Tugash muddati: ${formattedDate}\n\n<i>Endi barcha kinolarni tomosha qilishingiz mumkin.</i>`, { parse_mode: 'HTML' });
-                } catch (e) {
-                    ctx.reply(`⚠️ Userga xabar yuborilmadi (bloklagan bo'lishi mumkin). VIP baribir berildi.`);
-                }
+                ctx.telegram.sendMessage(telegramId, `🎉 <b>Tabriklaymiz!</b>\n\nSizga ${days} kunga VIP status berildi!\n📅 Tugash muddati: ${formattedDate}`, { parse_mode: 'HTML' }).catch(() => {});
             } else {
                 ctx.reply('❌ Foydalanuvchi topilmadi. Avval botga start bosgan bo\'lishi kerak.');
             }
@@ -793,38 +732,20 @@ export const setupAdminCommands = (bot) => {
 
     // /removevip user_id
     bot.command('removevip', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const parts = ctx.message.text.split(' ');
             const telegramId = parseInt(parts[1]);
 
             if (!telegramId) return ctx.reply('⚠️ Format: /removevip 123456789');
 
-            const user = await User.findOneAndUpdate(
-                { telegramId },
-                {
-                    vipUntil: null,
-                    vipAddedBy: null,
-                    vipAddedAt: null
-                },
-                { new: true }
-            );
+            const user = await removeVip(telegramId);
+            resetUserCaches(telegramId);
 
             if (user) {
-                await AdminLog.create({
-                    adminId: ctx.from.id,
-                    action: 'remove_vip',
-                    targetId: telegramId,
-                    details: 'Removed VIP via command'
-                });
+                logAdminAction(ctx.from.id, 'remove_vip', telegramId, 'Removed VIP via command');
                 ctx.reply(`🗑️ <b>VIP olib tashlandi:</b> <code>${telegramId}</code>`, { parse_mode: 'HTML' });
-                try {
-                    await ctx.telegram.sendMessage(telegramId,
-                        '⚠️ <b>VIP obunangiz o\'chirildi.</b>\n\n' +
-                        '<i>Menyu yangilanadi. Davom etish uchun /start yuborishingiz ham mumkin.</i>',
-                        { parse_mode: 'HTML' }
-                    );
-                } catch (e) { }
+                ctx.telegram.sendMessage(telegramId, '⚠️ <b>VIP obunangiz o\'chirildi.</b>\n\n<i>Davom etish uchun /start yuboring.</i>', { parse_mode: 'HTML' }).catch(() => {});
             } else {
                 ctx.reply('❌ Foydalanuvchi topilmadi.');
             }
@@ -836,7 +757,7 @@ export const setupAdminCommands = (bot) => {
 
     // /checkvip user_id
     bot.command('checkvip', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const parts = ctx.message.text.split(' ');
             const telegramId = parseInt(parts[1]);
@@ -864,7 +785,7 @@ export const setupAdminCommands = (bot) => {
 
     // Handle Unmasked Leaderboard (Admin)
     bot.hears('🏆 VIP Leaderboard', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const users = await User.find({ vipUntil: { $gt: new Date() } })
                 .sort({ moviesWatched: -1 })
@@ -885,7 +806,7 @@ export const setupAdminCommands = (bot) => {
 
     // Handle VIP Removal UI
     bot.hears('🗑 VIP O\'chirish', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             // Find current VIPs
             const users = await User.find({ vipUntil: { $gt: new Date() } }).limit(10);
@@ -907,40 +828,24 @@ export const setupAdminCommands = (bot) => {
 
     bot.action(/remove_vip_(\d+)/, async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌ Ruxsat yo\'q');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌ Ruxsat yo\'q');
             const telegramId = parseInt(ctx.match[1]);
 
-            await User.findOneAndUpdate(
-                { telegramId },
-                { vipUntil: null, vipAddedBy: null, vipAddedAt: null }
-            );
+            await removeVip(telegramId);
+            resetUserCaches(telegramId);
 
             await ctx.answerCbQuery('✅ VIP olib tashlandi');
-            await AdminLog.create({
-                adminId: ctx.from.id,
-                action: 'remove_vip',
-                targetId: telegramId,
-                details: 'Removed VIP via UI'
-            });
+            logAdminAction(ctx.from.id, 'remove_vip', telegramId, 'Removed VIP via UI');
             await ctx.editMessageText(`✅ <b>VIP olib tashlandi:</b> <code>${telegramId}</code>`, { parse_mode: 'HTML' });
 
-            // Notify user
-            try {
-                await ctx.telegram.sendMessage(telegramId,
-                    '⚠️ <b>VIP obunangiz o\'chirildi.</b>\n\n' +
-                    '<i>Menyu yangilanadi. Davom etish uchun /start yuborishingiz ham mumkin.</i>',
-                    { parse_mode: 'HTML' }
-                );
-                await sendMainMenu({
-                    ...ctx,
-                    from: { id: telegramId, first_name: undefined },
-                    session: ctx.session,
-                    t: ctx.t,
-                    reply: (text, extra) => ctx.telegram.sendMessage(telegramId, text, extra)
-                });
-            } catch (e) { }
+            // Foydalanuvchini xabardor qilamiz
+            ctx.telegram.sendMessage(
+                telegramId,
+                '⚠️ <b>VIP obunangiz o\'chirildi.</b>\n\n<i>Davom etish uchun /start yuboring.</i>',
+                { parse_mode: 'HTML' }
+            ).catch(() => {});
         } catch (e) {
-            logger.error('Remove VIp Action error', e);
+            logger.error('Remove VIP action error:', e);
         }
     });
 
@@ -954,7 +859,7 @@ export const setupAdminCommands = (bot) => {
 
     // Subscription Management
     bot.hears('📢 Majburiy Obuna', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const channels = await Channel.find();
             const config = await Config.findOne({ key: 'subscription_enabled' });
@@ -990,6 +895,7 @@ export const setupAdminCommands = (bot) => {
 
     // Toggle Subscription Action
     bot.action('sub_toggle_off', async (ctx) => {
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌').catch(() => {});
         await toggleSubscription(false);
         await ctx.answerCbQuery('Majburiy obuna o\'chirildi');
         // Refresh menu (trigger command handler logic via function/message edit)
@@ -998,6 +904,7 @@ export const setupAdminCommands = (bot) => {
     });
 
     bot.action('sub_toggle_on', async (ctx) => {
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌').catch(() => {});
         await toggleSubscription(true);
         await ctx.answerCbQuery('Majburiy obuna yoqildi');
         await ctx.editMessageText('✅ <b>Majburiy obuna yoqildi.</b>\n\nQayta kirish uchun menyudan tanlang.', { parse_mode: 'HTML' });
@@ -1005,6 +912,7 @@ export const setupAdminCommands = (bot) => {
 
     // Add Channel Action
     bot.action('add_channel', async (ctx) => {
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌').catch(() => {});
         try {
             await ctx.reply('✍️ <b>Kanal qo\'shish</b>\n\nKanal IDsi va Linkini quyidagi formatda yuboring:\n\n<code>/addchannel -100123456789 https://t.me/kanal_link</code>\n\n<i>Bot kanalga avval ADMIN qilingan bo\'lishi shart!</i>', { parse_mode: 'HTML' });
             ctx.answerCbQuery();
@@ -1012,7 +920,7 @@ export const setupAdminCommands = (bot) => {
     });
 
     bot.command('addchannel', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const parts = ctx.message.text.split(' ');
             // /addchannel id link
@@ -1046,6 +954,7 @@ export const setupAdminCommands = (bot) => {
 
     // Delete Channel Menu
     bot.action('delete_channel_menu', async (ctx) => {
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌').catch(() => {});
         try {
             const channels = await Channel.find();
             if (channels.length === 0) return ctx.answerCbQuery('Kanallar yo\'q', true);
@@ -1061,6 +970,7 @@ export const setupAdminCommands = (bot) => {
     });
 
     bot.action(/del_channel_(.+)/, async (ctx) => {
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌').catch(() => {});
         try {
             const channelId = ctx.match[1];
             await Channel.findOneAndDelete({ channelId });
@@ -1094,6 +1004,7 @@ export const setupAdminCommands = (bot) => {
 
             user.role = 'admin';
             await user.save();
+            resetUserCaches(telegramId);
 
             await AdminLog.create({
                 adminId: ctx.from.id,
@@ -1136,6 +1047,7 @@ export const setupAdminCommands = (bot) => {
 
             user.role = 'user';
             await user.save();
+            resetUserCaches(telegramId);
 
             await AdminLog.create({
                 adminId: ctx.from.id,
@@ -1143,7 +1055,7 @@ export const setupAdminCommands = (bot) => {
                 targetId: telegramId,
                 details: 'Demoted to User'
             });
-
+                  
             ctx.reply(`✅ <b>Admin olib tashlandi.</b>\n\n👤 ${user.firstName} (<code>${user.telegramId}</code>) endi oddiy foydalanuvchi.`, { parse_mode: 'HTML' });
             try { await ctx.telegram.sendMessage(telegramId, '⚠️ Sizning Admin huquqingiz olib tashlandi.', { parse_mode: 'HTML' }); } catch (e) { }
 
@@ -1155,7 +1067,7 @@ export const setupAdminCommands = (bot) => {
 
     // View Admins List + Management UI
     bot.hears('👮‍♂️ Adminlar', async (ctx) => {
-        if (!await adminCheck(ctx)) return;
+        if (!adminCheck(ctx)) return;
         try {
             const admins = await User.find({ role: { $in: ['admin', 'superadmin'] } });
             let msg = '👮‍♂️ <b>Bot Adminlari:</b>\n\n';
@@ -1205,6 +1117,7 @@ export const setupAdminCommands = (bot) => {
         if (user) {
             user.role = 'user';
             await user.save();
+            resetUserCaches(targetId);
             await AdminLog.create({
                 adminId: ctx.from.id,
                 action: 'remove_admin',
@@ -1381,23 +1294,19 @@ export const setupAdminCommands = (bot) => {
     // Handle P2P VIP Approvals
     bot.action(/approve_vip_(\d+)_(\d+)/, async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌ Yetarli huquq yo\'q');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌ Yetarli huquq yo\'q');
 
             const days = parseInt(ctx.match[1]);
             const targetUserId = ctx.match[2];
 
-            const user = await User.findOne({ telegramId: targetUserId });
+            const user = await extendVip(parseInt(targetUserId, 10), days, ctx.from.id);
             if (!user) return ctx.answerCbQuery('❌ Foydalanuvchi topilmadi');
-
-            const currentVip = user.vipUntil && new Date(user.vipUntil) > new Date() ? new Date(user.vipUntil) : new Date();
-            currentVip.setDate(currentVip.getDate() + days);
-            user.vipUntil = currentVip;
-            await user.save();
+            resetUserCaches(parseInt(targetUserId, 10));
 
             // Notify user
             await ctx.telegram.sendMessage(
                 targetUserId,
-                `🎉 <b>To'lovingiz tasdiqlandi!</b>\n\nSizga ${days} kunlik so'ralgan VIP obunasi muvaffaqiyatli berildi. \n💎 Yangi tugash muddati: ${currentVip.toISOString().split('T')[0]}`,
+                `🎉 <b>To'lovingiz tasdiqlandi!</b>\n\nSizga ${days} kunlik so'ralgan VIP obunasi muvaffaqiyatli berildi. \n💎 Yangi tugash muddati: ${new Date(user.vipUntil).toISOString().split('T')[0]}`,
                 { parse_mode: 'HTML' }
             ).catch(() => { });
 
@@ -1416,7 +1325,7 @@ export const setupAdminCommands = (bot) => {
 
     bot.action(/reject_vip_(\d+)/, async (ctx) => {
         try {
-            if (!await adminCheck(ctx)) return ctx.answerCbQuery('❌ Yetarli huquq yo\'q');
+            if (!adminCheck(ctx)) return ctx.answerCbQuery('❌ Yetarli huquq yo\'q');
             const targetUserId = ctx.match[1];
 
             // Notify user
@@ -1441,10 +1350,11 @@ export const setupAdminCommands = (bot) => {
 
     // 💾 Zaxira yaratish (JSON Export)
     bot.action('admin_backup', async (ctx) => {
+        if (!superAdminCheck(ctx)) return ctx.answerCbQuery('❌ Faqat Bosh Admin uchun!', { show_alert: true }).catch(() => {});
         try {
             await ctx.answerCbQuery('💾 Zaxira (Backup) yuklanmoqda... Boshqalardan sir saqlang!').catch(() => { });
-            const users = await User.find({});
-            const movies = await Movie.find({});
+            const users = await User.find({}).lean();
+            const movies = await Movie.find({}).lean();
 
             const backupData = {
                 generatedAt: new Date().toISOString(),
@@ -1466,6 +1376,7 @@ export const setupAdminCommands = (bot) => {
 
     // 📈 Katta Biznes Statistika
     bot.action('admin_stats_advanced', async (ctx) => {
+        if (!adminCheck(ctx)) return ctx.answerCbQuery('❌').catch(() => {});
         try {
             await ctx.answerCbQuery('📈 Tahlil tayyorlanmoqda...').catch(() => { });
 

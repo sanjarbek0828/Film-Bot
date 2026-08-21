@@ -1,7 +1,9 @@
 import { Scenes, Markup } from 'telegraf';
 import User from '../models/User.js';
 import logger from '../utils/logger.js';
-import { sendMainMenu } from '../utils/menuUtils.js';
+import { broadcast } from '../utils/broadcaster.js';
+import { setJsonConfig, CONFIG_KEYS } from '../services/configService.js';
+import { flushAll } from '../utils/cache.js';
 
 const globalVipScene = new Scenes.WizardScene(
     'GLOBAL_VIP_SCENE',
@@ -97,67 +99,67 @@ const globalVipScene = new Scenes.WizardScene(
                 await ctx.answerCbQuery('Jarayon boshlandi...').catch(() => {});
                 const msgData = ctx.wizard.state.message;
                 const days = ctx.wizard.state.days;
-                
-                const users = await User.find();
-                await ctx.editMessageText(`🚀 <b>VIP va Xabar tarqatilmoqda...</b> 0/${users.length}`, { parse_mode: 'HTML' }).catch(() => {});
-
-                let success = 0;
-                let failed = 0;
 
                 const now = new Date();
                 const targetDate = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+                const chatId = ctx.chat.id;
+                const progressMsgId = ctx.callbackQuery.message.message_id;
 
-                // Background Fire & Forget task
+                await ctx.editMessageText(`🚀 <b>VIP berilmoqda...</b>`, { parse_mode: 'HTML' }).catch(() => {});
+
+                // Scene'ni bo'shatamiz — jarayon fonda davom etadi
+                ctx.scene.leave().catch(() => {});
+
                 (async () => {
-                    // Tezkor ommaviy update hammaga bittada bazada VIP ni ilib qo'yadi
+                    // 1) Hammaga bazada VIP ni ilib qo'yamiz (bitta so'rov)
                     await User.updateMany(
-                         {
-                             $or: [
-                                 { vipUntil: { $exists: false } },
-                                 { vipUntil: { $lt: targetDate } },
-                                 { vipUntil: null }
-                             ]
-                         },
-                         { $set: { vipUntil: targetDate } }
+                        {
+                            $or: [
+                                { vipUntil: { $exists: false } },
+                                { vipUntil: { $lt: targetDate } },
+                                { vipUntil: null },
+                            ],
+                        },
+                        { $set: { vipUntil: targetDate, vipNotified: false } }
                     );
 
-                    // Aksiya xotirasini Tizimli Konfiguratsiyaga Start buyrug'i uchun yozamiz
-                    await import('../models/Config.js').then(m => m.default.updateOne(
-                        { key: 'LATEST_GLOBAL_VIP' },
-                        { $set: { value: JSON.stringify({ targetDate: targetDate.getTime(), message: msgData }) } },
-                        { upsert: true }
-                    )).catch(() => {});
+                    // Kesh eskirganini bildiramiz (yangi VIP holati kuchga kirsin)
+                    flushAll();
 
-                    // Asta sekinlik bilan xabar jo'natib chiqamiz Rate Limitdan saqlanish (40ms) uchun
-                    for (let i = 0; i < users.length; i++) {
-                        const userId = users[i].telegramId;
-                        try {
-                            if (msgData.type === 'text') {
-                                await ctx.telegram.sendMessage(userId, `💎 ${msgData.content}`, { parse_mode: 'HTML' });
-                            } else if (msgData.type === 'photo') {
-                                await ctx.telegram.sendPhoto(userId, msgData.fileId, { caption: msgData.caption ? `💎 ${msgData.caption}` : undefined, parse_mode: 'HTML' });
-                            } else if (msgData.type === 'video') {
-                                await ctx.telegram.sendVideo(userId, msgData.fileId, { caption: msgData.caption ? `💎 ${msgData.caption}` : undefined, parse_mode: 'HTML' });
-                            }
-                            success++;
-                        } catch (e) {
-                            failed++;
-                        }
-                        
-                        // 40ms tanaffus Telegram block qilib qoymasligi uchun
-                        await new Promise(resolve => setTimeout(resolve, 40));
+                    // 2) Aksiya xotirasini saqlaymiz (yangi kelganlarga ham berish uchun)
+                    await setJsonConfig(CONFIG_KEYS.LATEST_GLOBAL_VIP, {
+                        targetDate: targetDate.getTime(),
+                        message: msgData,
+                    }).catch(() => {});
 
-                        if (i % 50 === 0 && i > 0) {
-                            try { await ctx.telegram.editMessageText(ctx.chat.id, ctx.callbackQuery.message.message_id, null, `🚀 <b>Yuborilmoqda...</b> ${i}/${users.length}\n✅ ${success} ta bordi`, { parse_mode: 'HTML' }); } catch (e) {}
-                        }
-                    }
+                    // 3) Xabarni rate-limitga chidamli tarqatamiz
+                    const rows = await User.find().select('telegramId').lean();
+                    const recipients = rows.map((row) => row.telegramId);
 
-                    try {
-                        await ctx.telegram.editMessageText(ctx.chat.id, ctx.callbackQuery.message.message_id, null, `✅ <b>GLOBAL VIP BARCHAGA YETKAZILDI!</b>\n\n🎯 Berildi: ${days} KUN\n✅ Muvaffaqiyatli bordi: ${success} ta\n❌ Bloklaganlar: ${failed} ta`, { parse_mode: 'HTML' });
-                    } catch (e) {}
-                })();
+                    const send = (userId) => {
+                        const opts = { parse_mode: 'HTML' };
+                        if (msgData.type === 'text') return ctx.telegram.sendMessage(userId, `💎 ${msgData.content}`, opts);
+                        if (msgData.type === 'photo') return ctx.telegram.sendPhoto(userId, msgData.fileId, { ...opts, caption: msgData.caption ? `💎 ${msgData.caption}` : undefined });
+                        if (msgData.type === 'video') return ctx.telegram.sendVideo(userId, msgData.fileId, { ...opts, caption: msgData.caption ? `💎 ${msgData.caption}` : undefined });
+                        return Promise.resolve();
+                    };
 
-                return ctx.scene.leave();
+                    const result = await broadcast({
+                        recipients,
+                        send,
+                        onProgress: ({ sent, total }) => {
+                            ctx.telegram.editMessageText(chatId, progressMsgId, null, `🚀 <b>Tarqatilmoqda...</b> ${sent}/${total}`, { parse_mode: 'HTML' }).catch(() => {});
+                        },
+                    });
+
+                    await ctx.telegram.editMessageText(
+                        chatId, progressMsgId, null,
+                        `✅ <b>GLOBAL VIP BARCHAGA BERILDI!</b>\n\n🎯 Muddat: ${days} kun\n✅ Xabar yetdi: ${result.sent}\n🚫 Bloklaganlar: ${result.blocked}\n👥 Jami: ${result.total}`,
+                        { parse_mode: 'HTML' }
+                    ).catch(() => {});
+                })().catch((err) => logger.error('Global VIP broadcast:', err));
+
+                return;
             }
         } catch (e) {
             return ctx.scene.leave();

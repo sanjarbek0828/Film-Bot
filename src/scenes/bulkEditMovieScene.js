@@ -1,6 +1,7 @@
 import { Scenes, Markup } from 'telegraf';
 import logger from '../utils/logger.js';
 import Movie from '../models/Movie.js';
+import { invalidateMovieCaches } from '../services/movieService.js';
 
 const bulkEditMovieScene = new Scenes.WizardScene(
     'BULK_EDIT_MOVIE_SCENE',
@@ -114,6 +115,7 @@ const bulkEditMovieScene = new Scenes.WizardScene(
             }
 
             await ctx.reply(`✅ <b>Ommaviy tahrirlash muvaffaqiyatli yakunlandi!</b>\n\n🔄 Tahrirlangan kinolar soni: <b>${updatedCount}</b> ta`, { parse_mode: 'HTML' });
+            invalidateMovieCaches();
             return ctx.scene.leave();
 
         } catch (e) {

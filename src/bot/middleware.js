@@ -1,207 +1,233 @@
-import { findOrCreateUser } from '../services/userService.js';
-import { checkSubscription } from '../services/subscriptionService.js';
-import logger from '../utils/logger.js';
-import { getTranslation } from '../utils/locales.js';
-import { Markup } from 'telegraf';
-import User from '../models/User.js';
-import { isAdmin } from '../utils/adminHelper.js';
 import NodeCache from 'node-cache';
+import { Markup } from 'telegraf';
+import { findOrCreateUser, setBanned, invalidateUserCache } from '../services/userService.js';
+import { checkSubscription, invalidateUserSubscription } from '../services/subscriptionService.js';
+import { createTranslator } from '../utils/locales.js';
+import { isAdmin } from '../utils/adminHelper.js';
+import { isVipUser } from '../utils/menuUtils.js';
+import logger from '../utils/logger.js';
 
-// ═══════════════════════════════════════════════════════
-// 🛡️ ANTI-SPAM: Yumshoqroq va adolatli tizim
-// ═══════════════════════════════════════════════════════
-const rateLimitCache = new NodeCache({ stdTTL: 60, checkperiod: 30 });
-const strikesCache = new NodeCache({ stdTTL: 600, checkperiod: 60 });
-const subStatusCache = new NodeCache({ stdTTL: 1800, checkperiod: 120 }); // 30 min cache
+/**
+ * Auth + anti-spam + obuna middleware.
+ *
+ * TUZATILGAN KRITIK BUGLAR:
+ *
+ * 1. XAVFSIZLIK — huquq oshirish (privilege escalation):
+ *    Eski kodda `globalAdminSet` ga bir marta qo'shilgan foydalanuvchi
+ *    HECH QACHON o'chirilmasdi. Admin huquqi olib tashlansa ham, u
+ *    server restart bo'lgunicha admin bo'lib qolardi. Bundan tashqari,
+ *    `globalAdminSet.has(userId)` bloklangan foydalanuvchini
+ *    AVTOMATIK BLOKDAN CHIQARARDI (120-qator) — ya'ni bir marta admin
+ *    bo'lgan odam ban qilinsa, o'zi avtomatik unban bo'lardi.
+ *    Endi admin holati faqat ENV yoki joriy DB roli bo'yicha aniqlanadi.
+ *
+ * 2. BAN kechikishi: `userService` keshi tufayli ban 60 sekundgacha
+ *    kuchga kirmasdi. Endi ban/unban paytida kesh majburiy tozalanadi.
+ *
+ * 3. Anti-spam adolatsizligi: eski kod tez ikki marta bosishni ham
+ *    "strike" deb hisoblardi va 6 tadan keyin BAZAGA ban yozardi.
+ *    Endi ban DB ga yozilmaydi — faqat xotirada vaqtinchalik cheklov
+ *    (bazani ifloslantirmaydi va o'zi tiklanadi).
+ *
+ * 4. `ctx.reply()` bloklangan foydalanuvchida throw qilib, `bot.catch`
+ *    da yana `ctx.reply()` chaqirilardi — cheksiz xato. Endi barcha
+ *    javoblar `safeReply` orqali.
+ */
 
-const SPAM_INTERVAL = 250;        // 250ms dan tez — spam hisoblanadi
-const MAX_REQUESTS_PER_MIN = 40;  // Daqiqasiga 40 ta so'rov
-const BAN_STRIKES = 6;            // 6 ta strike keyin ban
-const TEMP_BAN_MINUTES = 10;      // 10 daqiqalik vaqtinchalik ban
+// ═══════════════════════ Anti-spam sozlamalari ═══════════════════════
+const BURST_WINDOW_MS = 1000;      // 1 sekundlik oyna
+const BURST_LIMIT = 5;             // Oynada maksimal 5 ta so'rov
+const MINUTE_LIMIT = 60;           // Daqiqada maksimal 60 ta so'rov
+const COOLDOWN_SECONDS = 30;       // Limitdan oshganda jazolash muddati
+const WARN_COOLDOWN_MS = 15_000;   // Ogohlantirishni takrorlash oralig'i
 
-// ═══════════════════════════════════════════════════════
-// 💎 VIP Promo xabarlari
-// ═══════════════════════════════════════════════════════
-const vipPromoMessages = [
-    "🚀 <b>Tezkor yuklab olishni xohlaysizmi?</b>\n\n💎 VIP obuna bo'ling va cheklovsiz tezlikda yuklang!",
-    "⭐️ <b>Reklamalardan charchadingizmi?</b>\n\n💎 VIP status oling va reklamasiz botdan foydalaning!",
-    "🎬 <b>Yangi kinolarni birinchilardan bo'lib ko'ring!</b>\n\n💎 VIP foydalanuvchilar uchun eksklyuziv imkoniyatlar.",
+const rateBuckets = new NodeCache({ stdTTL: 120, checkperiod: 60, useClones: false, maxKeys: 50_000 });
+const cooldowns = new NodeCache({ stdTTL: COOLDOWN_SECONDS, checkperiod: 15, maxKeys: 50_000 });
+const warnedAt = new NodeCache({ stdTTL: 60, checkperiod: 30, maxKeys: 50_000 });
+
+const VIP_PROMOS = [
+    "🚀 <b>Kinolarni telefoningizga yuklab olmoqchimisiz?</b>\n\n💎 VIP obuna bo'ling — barcha kinolar cheklovsiz!",
+    "⭐️ <b>Sevimli kinolaringizni saqlab qo'ymoqchimisiz?</b>\n\n💎 VIP bilan sevimlilar va ko'rish tarixi ochiladi.",
+    "🎬 <b>Sharh qoldirib, boshqalarning fikrini o'qing!</b>\n\n💎 Bu imkoniyat VIP obunachilar uchun.",
 ];
 
-const globalAdminSet = new Set(); // Xotirada adminlarni saqlash uchun (Spam-filtrdan o'tkazmaslik uchun)
+/** Javob berishga urinadi, xatolikni yutadi (bloklangan chatlar uchun) */
+const safeReply = (ctx, text, extra) => ctx.reply(text, extra).catch(() => null);
 
-export const authMiddleware = async (ctx, next) => {
-    if (!ctx.from) return next();
+/**
+ * Anti-spam tekshiruvi.
+ * @returns {'ok' | 'silent' | 'warn'}
+ */
+const checkRateLimit = (userId) => {
+    if (cooldowns.get(userId)) return 'silent';
 
-    const userId = ctx.from.id;
     const now = Date.now();
+    let bucket = rateBuckets.get(userId);
 
-    // ══════════ ADMIN BYPASS — Admin tekshiruvlarni o'tkazib yuboradi ══════════
-    if (isAdmin(userId) || globalAdminSet.has(userId)) {
-        try {
-            const user = await findOrCreateUser(ctx);
-            if (user && (user.role === 'admin' || user.role === 'superadmin')) {
-                globalAdminSet.add(userId);
-            }
-            if (!ctx.session) ctx.session = {};
-            ctx.session.user = user;
-            ctx.t = (key, params = {}) => getTranslation(user?.language || 'uz', key, params);
-            ctx.isVip = () => true; // Admin = always VIP
-            ctx.showVipPromo = async () => {};
-        } catch (e) {
-            ctx.t = (key, params = {}) => getTranslation('uz', key, params);
-            ctx.isVip = () => true;
-            ctx.showVipPromo = async () => {};
-        }
-        return next();
+    if (!bucket) {
+        bucket = { burstStart: now, burstCount: 0, minuteStart: now, minuteCount: 0 };
+        rateBuckets.set(userId, bucket);
     }
 
-    // ══════════ ANTI-SPAM TEKSHIRUV ══════════
-    const userRate = rateLimitCache.get(userId) || { count: 0, resetTime: now + 60000, lastReq: 0 };
+    // Sekundlik oyna
+    if (now - bucket.burstStart > BURST_WINDOW_MS) {
+        bucket.burstStart = now;
+        bucket.burstCount = 0;
+    }
+    bucket.burstCount += 1;
 
-    // Tez-tez spam tekshiruvi
-    if (now - userRate.lastReq < SPAM_INTERVAL) {
-        const strikes = (strikesCache.get(userId) || 0) + 1;
-        strikesCache.set(userId, strikes);
+    // Daqiqalik oyna
+    if (now - bucket.minuteStart > 60_000) {
+        bucket.minuteStart = now;
+        bucket.minuteCount = 0;
+    }
+    bucket.minuteCount += 1;
 
-        if (strikes >= BAN_STRIKES) {
-            // VAQTINCHALIK BAN — 10 daqiqa
-            try {
-                const bannedUntil = new Date(now + TEMP_BAN_MINUTES * 60 * 1000);
-                await User.updateOne(
-                    { telegramId: userId },
-                    { isBanned: true, bannedUntil }
-                );
-                strikesCache.del(userId);
-                rateLimitCache.del(userId);
+    if (bucket.burstCount > BURST_LIMIT || bucket.minuteCount > MINUTE_LIMIT) {
+        cooldowns.set(userId, true);
+        rateBuckets.del(userId);
 
-                const unbanTime = new Date(bannedUntil).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' });
-                return ctx.reply(
-                    `⛔️ <b>Siz spam tufayli ${TEMP_BAN_MINUTES} daqiqaga bloklandingiz!</b>\n\n` +
-                    `🕐 Blokdan chiqish vaqti: <b>${unbanTime}</b>`,
-                    { parse_mode: 'HTML' }
-                ).catch(() => {});
-            } catch (e) {
-                logger.error('Auto-ban error:', e);
+        if (warnedAt.get(userId)) return 'silent';
+        warnedAt.set(userId, now, WARN_COOLDOWN_MS / 1000);
+        return 'warn';
+    }
+
+    return 'ok';
+};
+
+/** Muddati tugagan vaqtinchalik banni avtomatik olib tashlaydi */
+const resolveBan = async (user) => {
+    if (!user?.isBanned) return false;
+
+    if (user.bannedUntil && new Date(user.bannedUntil) <= new Date()) {
+        await setBanned(user.telegramId, false).catch(() => {});
+        user.isBanned = false;
+        user.bannedUntil = null;
+        return false;
+    }
+    return true;
+};
+
+export const authMiddleware = async (ctx, next) => {
+    if (!ctx.from || ctx.from.is_bot) return next();
+
+    const userId = ctx.from.id;
+    const envAdmin = isAdmin(userId);
+
+    // ═══ 1. Anti-spam (adminlar uchun o'tkazib yuboriladi) ═══
+    if (!envAdmin) {
+        const verdict = checkRateLimit(userId);
+        if (verdict === 'warn') {
+            if (ctx.updateType === 'callback_query') {
+                await ctx.answerCbQuery(`⚠️ Juda tez! ${COOLDOWN_SECONDS} soniya kuting.`, { show_alert: true }).catch(() => {});
+            } else {
+                await safeReply(ctx, `⚠️ <b>Juda ko'p so'rov!</b>\n\nIltimos, ${COOLDOWN_SECONDS} soniya kutib turing.`, { parse_mode: 'HTML' });
             }
             return;
         }
-
-        userRate.lastReq = now;
-        rateLimitCache.set(userId, userRate);
-        return; // Javob bermaslik (jimgina o'tkazib yuborish)
+        if (verdict === 'silent') return;
     }
 
-    userRate.lastReq = now;
-
-    if (now > userRate.resetTime) {
-        userRate.count = 1;
-        userRate.resetTime = now + 60000;
-    } else {
-        userRate.count++;
-    }
-
-    rateLimitCache.set(userId, userRate);
-
-    if (userRate.count > MAX_REQUESTS_PER_MIN) {
-        return ctx.reply('⚠️ Juda ko\'p so\'rov! Biroz kuting.').catch(() => {});
-    }
-
-    // ══════════ FOYDALANUVCHI TEKSHIRUV ══════════
+    // ═══ 2. Foydalanuvchini yuklash ═══
+    let user = null;
     try {
-        const user = await findOrCreateUser(ctx);
+        user = await findOrCreateUser(ctx);
+    } catch (error) {
+        logger.error('authMiddleware findOrCreateUser:', error);
+    }
 
-        if (user && (user.role === 'admin' || user.role === 'superadmin')) {
-            globalAdminSet.add(userId);
-        }
+    // ═══ 3. Kontekstni tayyorlash (DB ishlamasa ham bot ishlashda davom etadi) ═══
+    if (!ctx.session) ctx.session = {};
+    ctx.session.user = user;
 
-        // Bloklangan foydalanuvchi tekshiruvi (avtomatik blokdan chiqarish bilan)
-        if (user && user.isBanned) {
-            if (user.bannedUntil && new Date(user.bannedUntil) <= new Date() || globalAdminSet.has(userId)) {
-                // Muddati tugagan (yoki u admin ekanligi aniqlangan) — avtomatik blokdan chiqarish
-                user.isBanned = false;
-                user.bannedUntil = null;
-                await user.save();
-            } else {
-                const remaining = user.bannedUntil
-                    ? `\n🕐 Blokdan chiqish: <b>${new Date(user.bannedUntil).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}</b>`
-                    : '';
-                return ctx.reply(`🚫 <b>Siz botdan foydalana olmaysiz.</b>${remaining}`, { parse_mode: 'HTML' }).catch(() => {});
-            }
-        }
+    ctx.t = createTranslator(user?.language || 'uz');
+    ctx.isAdmin = envAdmin || user?.role === 'admin' || user?.role === 'superadmin';
+    ctx.isSuperAdmin = envAdmin;
+    // Adminlar barcha VIP funksiyalardan foydalanadi
+    ctx.isVip = () => ctx.isAdmin || isVipUser(user);
 
-        // Session'ga saqlash
-        if (!ctx.session) ctx.session = {};
-        ctx.session.user = user;
+    ctx.showVipPromo = async () => {
+        if (ctx.isVip()) return;
+        const promo = VIP_PROMOS[Math.floor(Math.random() * VIP_PROMOS.length)];
+        await safeReply(ctx, promo, {
+            parse_mode: 'HTML',
+            ...Markup.inlineKeyboard([[Markup.button.callback('💎 VIP Olish', 'vip_info')]]),
+        });
+    };
 
-        // i18n
-        const lang = user?.language || 'uz';
-        ctx.t = (key, params = {}) => getTranslation(lang, key, params);
+    if (!user) return next(); // DB yiqilgan — cheklovlarsiz o'tkazamiz
 
-        // VIP tekshirish helper
-        ctx.isVip = () => {
-            return user && user.vipUntil && new Date(user.vipUntil) > new Date();
-        };
-
-        // VIP promo helper
-        ctx.showVipPromo = async () => {
-            if (ctx.isVip()) return;
-            const promo = vipPromoMessages[Math.floor(Math.random() * vipPromoMessages.length)];
-            try {
-                await ctx.reply(promo, {
-                    parse_mode: 'HTML',
-                    ...Markup.inlineKeyboard([[Markup.button.callback('💎 VIP Olish', 'vip_info')]])
-                });
-            } catch (e) {}
-        };
-
-        // ══════════ OBUNA TEKSHIRUV (CALLBACK QUERYLAR UCHUN O'TKAZISH) ══════════
+    // ═══ 4. Ban tekshiruvi (adminlar ban bo'lmaydi) ═══
+    if (!ctx.isAdmin && (await resolveBan(user))) {
+        const until = user.bannedUntil
+            ? `\n🕐 Blokdan chiqish: <b>${new Date(user.bannedUntil).toLocaleString('uz-UZ', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}</b>`
+            : '';
         if (ctx.updateType === 'callback_query') {
-            return next();
+            await ctx.answerCbQuery('🚫 Siz bloklangansiz.', { show_alert: true }).catch(() => {});
+        } else {
+            await safeReply(ctx, `🚫 <b>Siz botdan foydalana olmaysiz.</b>${until}`, { parse_mode: 'HTML' });
         }
+        return;
+    }
 
-        // Cache'dan tekshirish — 30 daqiqa davomida qayta tekshirmaslik
-        if (subStatusCache.get(userId)) {
-            return next();
-        }
+    // ═══ 5. Majburiy obuna ═══
+    // Scene ichida (admin wizardlari) va callbacklarda tekshirmaymiz —
+    // `check_subscription` tugmasi start.js da alohida ishlanadi.
+    const skipSubCheck =
+        ctx.isAdmin ||
+        ctx.updateType === 'callback_query' ||
+        ctx.updateType === 'pre_checkout_query' ||
+        ctx.updateType === 'inline_query' ||
+        Boolean(ctx.session?.__scenes?.current);
 
+    if (!skipSubCheck) {
         try {
-            const subStatus = await checkSubscription(ctx);
-
-            if (subStatus !== true && Array.isArray(subStatus) && subStatus.length > 0) {
-                const buttons = subStatus.map(ch => [
-                    Markup.button.url(`📢 ${ch.name}`, ch.inviteLink.startsWith('http') ? ch.inviteLink : `https://${ch.inviteLink}`)
+            const status = await checkSubscription(ctx);
+            if (status !== true && Array.isArray(status) && status.length > 0) {
+                const buttons = status.map((channel) => [
+                    Markup.button.url(
+                        `📢 ${channel.name}`,
+                        /^https?:\/\//i.test(channel.inviteLink) ? channel.inviteLink : `https://${channel.inviteLink}`
+                    ),
                 ]);
-                buttons.push([Markup.button.callback('✅ Tekshirish', 'check_subscription')]);
+                buttons.push([Markup.button.callback(ctx.t('sub_btn_check'), 'check_subscription')]);
 
-                await ctx.reply(ctx.t('sub_check_msg'), {
+                // Kino kodi yuborilgan bo'lsa — obunadan keyin avtomatik yuborish uchun eslab qolamiz
+                const text = ctx.message?.text?.trim();
+                if (text && /^\d{1,7}$/.test(text)) ctx.session.pendingMovieCode = Number(text);
+
+                await safeReply(ctx, ctx.t('sub_check_msg'), {
                     parse_mode: 'HTML',
-                    ...Markup.inlineKeyboard(buttons)
+                    ...Markup.inlineKeyboard(buttons),
                 });
                 return;
             }
-
-            subStatusCache.set(userId, true);
-        } catch (e) {
-            logger.error('Subscription check error:', e);
+        } catch (error) {
+            logger.error('authMiddleware subscription:', error);
             // Xatolikda foydalanuvchini to'smaslik
         }
-
-        return next();
-    } catch (e) {
-        logger.error('Auth middleware error:', e);
-        ctx.t = (key, params = {}) => getTranslation('uz', key, params);
-        ctx.isVip = () => false;
-        ctx.showVipPromo = async () => {};
-        return next();
     }
+
+    return next();
 };
 
-export const adminMiddleware = (ctx, next) => {
-    try {
-        if (!isAdmin(ctx.from.id)) return;
-        return next();
-    } catch (err) {
-        logger.error('Admin Middleware Error:', err.message);
+/** Admin-only handlerlar uchun middleware */
+export const adminMiddleware = async (ctx, next) => {
+    if (!ctx.isAdmin) {
+        if (ctx.updateType === 'callback_query') {
+            await ctx.answerCbQuery('❌ Ruxsat yo\'q').catch(() => {});
+        }
+        return;
     }
+    return next();
 };
+
+/** Ban holatini tashqaridan o'zgartirganda keshlarni tozalash uchun */
+export const resetUserCaches = (telegramId) => {
+    invalidateUserCache(telegramId);
+    invalidateUserSubscription(telegramId);
+    rateBuckets.del(telegramId);
+    cooldowns.del(telegramId);
+};
+
+export default authMiddleware;

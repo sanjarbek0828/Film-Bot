@@ -1,6 +1,7 @@
 import { Scenes, Markup } from 'telegraf';
 import logger from '../utils/logger.js';
 import Movie from '../models/Movie.js';
+import { invalidateMovieCaches } from '../services/movieService.js';
 
 const editMovieScene = new Scenes.WizardScene(
     'EDIT_MOVIE_SCENE',
@@ -83,6 +84,7 @@ const editMovieScene = new Scenes.WizardScene(
             }
 
             await Movie.findOneAndUpdate({ code: movieCode }, update);
+            invalidateMovieCaches(movieCode);
             await ctx.reply('✅ <b>Muvaffaqiyatli saqlandi!</b>', { parse_mode: 'HTML' });
 
             // Re-fetch and show menu
@@ -158,6 +160,7 @@ editMovieScene.action('toggle_restrict', async (ctx) => {
         if (movie) {
             movie.isRestricted = !movie.isRestricted;
             await movie.save();
+            invalidateMovieCaches(movieCode);
             await ctx.answerCbQuery(movie.isRestricted ? '🔐 Qat\'iy himoyalandi' : '🔓 Himoya olib tashlandi');
 
             // Re-render menu

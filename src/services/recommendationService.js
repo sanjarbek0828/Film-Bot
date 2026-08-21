@@ -1,60 +1,105 @@
 import Movie from '../models/Movie.js';
 import User from '../models/User.js';
+import logger from '../utils/logger.js';
 
-export const getSmartRecommendations = async (userId, limit = 5) => {
+/**
+ * Tavsiya xizmati (recommendation).
+ *
+ * Muhim tuzatishlar:
+ *  - `.populate('watchHistory.movie')` butun tarixni yuklab tashlardi; endi
+ *    faqat oxirgi 20 yozuv va faqat `genre` maydoni olinadi.
+ *  - `_id: { $nin: [...] }` ichida string ID lar bor edi — MongoDB ObjectId
+ *    bilan solishtirmagani uchun filtr ishlamasdi (ko'rilgan kinolar qayta chiqardi).
+ *  - `averageRating` virtual maydon bo'yicha sort qilinardi — DB da bunday
+ *    maydon yo'q, ya'ni sort e'tiborsiz qolardi. Endi haqiqiy maydonlar bo'yicha.
+ */
+
+const LIST_FIELDS = 'code title poster genre year views ratingSum ratingCount';
+
+export const getSmartRecommendations = async (telegramIdOrObjectId, limit = 5) => {
     try {
-        const user = await User.findById(userId).populate('watchHistory.movie');
-        if (!user) return [];
+        const query = typeof telegramIdOrObjectId === 'number'
+            ? { telegramId: telegramIdOrObjectId }
+            : { _id: telegramIdOrObjectId };
 
-        const watchedIds = new Set();
-        const genreCounts = {};
+        const user = await User.findOne(query)
+            .select('watchHistory')
+            .slice('watchHistory', -20)
+            .populate({ path: 'watchHistory.movie', select: 'genre' })
+            .lean();
 
-        // Foydalanuvchi ko'rgan kinolarni guruhlab "eng yoqqan" janrlarni aniqlash
-        if (user.watchHistory && user.watchHistory.length > 0) {
-            user.watchHistory.forEach(h => {
-                const movie = h.movie;
-                if (movie) {
-                    watchedIds.add(movie._id.toString());
-                    if (movie.genre) {
-                        const genres = movie.genre.split(',').map(g => g.trim().toLowerCase());
-                        genres.forEach(g => {
-                            genreCounts[g] = (genreCounts[g] || 0) + 1;
-                        });
-                    }
-                }
-            });
+        const watchedIds = [];
+        const genreCounts = new Map();
+
+        for (const entry of user?.watchHistory ?? []) {
+            const movie = entry.movie;
+            if (!movie) continue;
+            watchedIds.push(movie._id);
+            for (const genre of String(movie.genre ?? '').split(',')) {
+                const key = genre.trim().toLowerCase();
+                if (key) genreCounts.set(key, (genreCounts.get(key) || 0) + 1);
+            }
         }
 
-        // Top 2 janrlarni ajratib olish
-        const sortedGenres = Object.entries(genreCounts)
-            .sort((a, b) => b[1] - a[1]) // highest first
-            .map(entry => entry[0])
-            .slice(0, 2);
+        const topGenres = [...genreCounts.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([genre]) => genre);
 
-        let query = { _id: { $nin: Array.from(watchedIds) } };
-        
-        if (sortedGenres.length > 0) {
-            const genreRegex = sortedGenres.map(g => new RegExp(g, 'i'));
-            query.genre = { $in: genreRegex };
+        const baseFilter = watchedIds.length > 0 ? { _id: { $nin: watchedIds } } : {};
+
+        let recommendations = [];
+
+        if (topGenres.length > 0) {
+            recommendations = await Movie.find({
+                ...baseFilter,
+                genre: { $in: topGenres.map((genre) => new RegExp(genre, 'i')) },
+            })
+                .select(LIST_FIELDS)
+                .sort({ views: -1, ratingCount: -1 })
+                .limit(limit)
+                .lean();
         }
 
-        let recommendations = await Movie.find(query)
-            .sort({ views: -1, averageRating: -1 })
-            .limit(limit);
-
-        // Agar yetarlicha kinosi chiqmasa o'rniga "Umumiy Top" beramiz
+        // Yetarli bo'lmasa — umumiy top kinolar bilan to'ldiramiz
         if (recommendations.length < limit) {
-             const existingIds = recommendations.map(r => r._id.toString());
-             const allSkipIds = [...Array.from(watchedIds), ...existingIds];
-             const fallback = await Movie.find({ _id: { $nin: allSkipIds } })
+            const excludeIds = [...watchedIds, ...recommendations.map((movie) => movie._id)];
+            const fallback = await Movie.find(excludeIds.length > 0 ? { _id: { $nin: excludeIds } } : {})
+                .select(LIST_FIELDS)
                 .sort({ views: -1 })
-                .limit(limit - recommendations.length);
-             recommendations = [...recommendations, ...fallback];
+                .limit(limit - recommendations.length)
+                .lean();
+            recommendations = [...recommendations, ...fallback];
         }
 
         return recommendations;
     } catch (error) {
-        console.error("AI Recommendation Error:", error);
+        logger.error('getSmartRecommendations:', error);
         return [];
     }
-}
+};
+
+/** "Shunga o'xshash kinolar" — bir xil janrdagi eng mashhurlari */
+export const getSimilarMovies = async (movie, limit = 6) => {
+    if (!movie?.genre) return [];
+    try {
+        const genres = String(movie.genre)
+            .split(',')
+            .map((genre) => genre.trim())
+            .filter(Boolean)
+            .map((genre) => new RegExp(genre.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+
+        if (genres.length === 0) return [];
+
+        return await Movie.find({ _id: { $ne: movie._id }, genre: { $in: genres } })
+            .select(LIST_FIELDS)
+            .sort({ views: -1 })
+            .limit(limit)
+            .lean();
+    } catch (error) {
+        logger.error('getSimilarMovies:', error);
+        return [];
+    }
+};
+
+export default getSmartRecommendations;
