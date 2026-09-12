@@ -95,7 +95,7 @@ const addMovieScene = new Scenes.WizardScene(
                     return ctx.wizard.next(); // Go to step 3 (Confirm AI)
                 } else {
                     await ctx.telegram.deleteMessage(ctx.chat.id, searchMsg.message_id).catch(()=>{});
-                    await ctx.reply('ℹ️ Kino bazadan topilmadi. Iltimos, kinoning <b>POSTERINI</b> (rasmini) qo\'lda yuboring:');
+                    await ctx.reply('ℹ️ Kino bazadan topilmadi. Iltimos, kinoning <b>POSTERINI</b> (rasmini) qo\'lda yuboring:', { parse_mode: 'HTML' });
                     ctx.wizard.state.aiDetails = null;
                     return ctx.wizard.selectStep(3); // Go to step 3 (which will act as manual poster step if they upload photo)
                 }
@@ -148,7 +148,7 @@ const addMovieScene = new Scenes.WizardScene(
                     });
                     return ctx.wizard.selectStep(4);
                 } else if (data === 'ai_reject') {
-                    await ctx.reply('🖼️ Iltimos, kinoning <b>POSTERINI</b> (rasmini) yuboring:');
+                    await ctx.reply('🖼️ Iltimos, kinoning <b>POSTERINI</b> (rasmini) yuboring:', { parse_mode: 'HTML' });
                     // Stay on Step 3, wait for photo
                     return;
                 }
