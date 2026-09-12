@@ -148,7 +148,17 @@ export const getMoviesPage = async ({ page = 1, limit = 40, genre, search, sort 
 
     const filter = {};
     if (genre && genre !== 'all') filter.genre = { $regex: escapeRegex(genre), $options: 'i' };
-    if (search) filter.title = { $regex: escapeRegex(String(search).trim()), $options: 'i' };
+    if (search) {
+        const clean = String(search).trim();
+        if (/^\d+$/.test(clean)) {
+            filter.$or = [
+                { code: Number(clean) },
+                { title: { $regex: escapeRegex(clean), $options: 'i' } },
+            ];
+        } else {
+            filter.title = { $regex: escapeRegex(clean), $options: 'i' };
+        }
+    }
 
     const sortMap = {
         new: { createdAt: -1 },

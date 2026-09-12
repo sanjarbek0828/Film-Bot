@@ -88,24 +88,21 @@ const buildCaption = (movie, { isVip, views }) => {
 };
 
 /**
- * Kinoni foydalanuvchiga yuboradi.
- * @returns {Promise<boolean>} muvaffaqiyatli yuborilganini bildiradi
+ * Kinoni to'g'ridan-to'g'ri berilgan chatga yuboradi (Telegram instance orqali).
+ * API va Telegraf kontekstlarida bir xil ishlaydi.
  */
-export const sendMovie = async (ctx, movie, dbUser) => {
-    if (!movie) {
-        await ctx.reply(ctx.t?.('not_found') || '📭 Kino topilmadi.').catch(() => {});
-        return false;
-    }
+export const sendMovieDirect = async (telegram, chatId, movie, dbUser, { botUsername, isVip: explicitVip, showVipPromo } = {}) => {
+    if (!movie || !chatId || !telegram) return false;
 
-    const isVip = ctx.isVip ? ctx.isVip() : isVipUser(dbUser);
+    const isVip = explicitVip !== undefined ? explicitVip : isVipUser(dbUser);
     const views = (movie.views || 0) + 1;
     const caption = buildCaption(movie, { isVip, views });
-    const keyboard = buildMovieButtons(movie, { isVip, botUsername: ctx.botInfo?.username });
+    const keyboard = buildMovieButtons(movie, { isVip, botUsername });
 
     const options = {
         caption,
         parse_mode: 'HTML',
-        protect_content: !isVip, // VIP bo'lmasa yuklab olib/uzatib bo'lmaydi
+        protect_content: !isVip,
         ...keyboard,
     };
 
@@ -114,7 +111,7 @@ export const sendMovie = async (ctx, movie, dbUser) => {
     // 1) Video
     if (movie.fileId) {
         try {
-            await ctx.replyWithVideo(movie.fileId, { ...options, supports_streaming: true });
+            await telegram.sendVideo(chatId, movie.fileId, { ...options, supports_streaming: true });
             delivered = true;
         } catch (error) {
             logger.warn(`Video yuborilmadi (kod ${movie.code}):`, error?.response?.description || error.message);
@@ -124,7 +121,7 @@ export const sendMovie = async (ctx, movie, dbUser) => {
     // 2) Poster (video bo'lmasa yoki xato bo'lsa)
     if (!delivered && movie.poster) {
         try {
-            await ctx.replyWithPhoto(movie.poster, options);
+            await telegram.sendPhoto(chatId, movie.poster, options);
             delivered = true;
         } catch (error) {
             logger.warn(`Poster yuborilmadi (kod ${movie.code}):`, error?.response?.description || error.message);
@@ -134,30 +131,49 @@ export const sendMovie = async (ctx, movie, dbUser) => {
     // 3) Faqat matn
     if (!delivered) {
         try {
-            await ctx.reply(
+            await telegram.sendMessage(
+                chatId,
                 `${caption}\n\n⚠️ <i>Ushbu kinoning media fayli mavjud emas. Admin tez orada tuzatadi.</i>`,
                 { parse_mode: 'HTML', ...keyboard }
             );
             delivered = true;
         } catch (error) {
-            logger.error('sendMovie fallback:', error);
+            logger.error('sendMovieDirect fallback:', error);
             return false;
         }
     }
 
-    // Statistikani yangilaymiz (javobni kutmasdan)
+    // Statistikani yangilaymiz (natijani kutmasdan)
     incrementViews(movie._id);
     if (dbUser?.telegramId) {
         recordMovieWatch(dbUser.telegramId, movie._id);
 
-        // Har 4-kinodan keyin VIP promo (aniq hisoblagich bilan)
         const watched = (dbUser.moviesWatched || 0) + 1;
-        if (!isVip && watched > 0 && watched % 4 === 0) {
-            setTimeout(() => ctx.showVipPromo?.(), 2500);
+        if (!isVip && watched > 0 && watched % 4 === 0 && typeof showVipPromo === 'function') {
+            setTimeout(() => showVipPromo(), 2500);
         }
     }
 
     return true;
 };
 
+/**
+ * Kinoni foydalanuvchiga yuboradi (Telegraf kontekstida).
+ * @returns {Promise<boolean>} muvaffaqiyatli yuborilganini bildiradi
+ */
+export const sendMovie = async (ctx, movie, dbUser) => {
+    if (!movie) {
+        await ctx.reply(ctx.t?.('not_found') || '📭 Kino topilmadi.').catch(() => {});
+        return false;
+    }
+
+    const isVip = ctx.isVip ? ctx.isVip() : isVipUser(dbUser);
+    return sendMovieDirect(ctx.telegram, ctx.chat.id, movie, dbUser, {
+        botUsername: ctx.botInfo?.username,
+        isVip,
+        showVipPromo: () => ctx.showVipPromo?.(),
+    });
+};
+
 export default sendMovie;
+

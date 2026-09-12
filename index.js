@@ -8,7 +8,8 @@ import config, { assertConfig } from './src/config/env.js';
 import connectDB, { disconnectDB, isDbConnected } from './src/config/db.js';
 import logger from './src/utils/logger.js';
 import bot from './src/bot/bot.js';
-import { getMoviesPage, getGenres } from './src/services/movieService.js';
+import { getMoviesPage, getGenres, getMovieByCode } from './src/services/movieService.js';
+import { sendMovieDirect } from './src/bot/sendMovie.js';
 import { verifyInitData } from './src/utils/telegramAuth.js';
 import User from './src/models/User.js';
 import Favorite from './src/models/Favorite.js';
@@ -66,7 +67,7 @@ app.use(
     '/webapp',
     express.static(PUBLIC_DIR, {
         maxAge: '7d',
-        index: false,
+        index: 'index.html',
         setHeaders: (res, filePath) => {
             if (filePath.endsWith('.html')) {
                 res.setHeader('Cache-Control', 'public, max-age=0, must-revalidate');
@@ -187,8 +188,42 @@ app.post('/api/favorites/toggle', authenticateWebApp, async (req, res) => {
     }
 });
 
-// SPA fallback — WebApp routing (Express v5: nomli wildcard)
-app.get('/webapp/*splat', (req, res) => {
+// Bot ma'lumotlari (username va qo'llab-quvvatlash havolasi)
+app.get('/api/bot-info', (req, res) => {
+    res.json({
+        username: bot.botInfo?.username || null,
+        supportUsername: config.supportUsername || null,
+        webAppUrl: config.webAppUrl || null,
+    });
+});
+
+// WebApp orqali kinoni to'g'ridan-to'g'ri foydalanuvchining bot chatiga yuborish
+app.post('/api/movies/play', authenticateWebApp, async (req, res) => {
+    try {
+        const { code } = req.body;
+        if (!code) return res.status(400).json({ error: 'missing_code' });
+
+        const movie = await getMovieByCode(Number(code));
+        if (!movie) return res.status(404).json({ error: 'movie_not_found' });
+
+        const user = await User.findOne({ telegramId: req.telegramUser.id }).lean();
+        const delivered = await sendMovieDirect(bot.telegram, req.telegramUser.id, movie, user, {
+            botUsername: bot.botInfo?.username,
+        });
+
+        if (delivered) {
+            return res.json({ success: true, code: movie.code, title: movie.title });
+        } else {
+            return res.status(500).json({ error: 'delivery_failed' });
+        }
+    } catch (error) {
+        logger.error('POST /api/movies/play:', error);
+        res.status(500).json({ error: 'server_error' });
+    }
+});
+
+// SPA fallback — WebApp routing (Express v5)
+app.get(['/webapp', '/webapp/*splat'], (req, res) => {
     res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
 
@@ -211,6 +246,16 @@ const start = async () => {
             { command: 'help', description: 'Yordam' },
             { command: 'support', description: 'Admin bilan bog\'lanish' },
         ]);
+
+        if (config.webAppUrl) {
+            await bot.telegram.setChatMenuButton({
+                menu_button: {
+                    type: 'web_app',
+                    text: '🎬 Katalog',
+                    web_app: { url: config.webAppUrl },
+                },
+            }).catch((err) => logger.debug('setChatMenuButton skip:', err.message));
+        }
     } catch (error) {
         logger.warn('Buyruqlar menyusini o\'rnatib bo\'lmadi:', error.message);
     }

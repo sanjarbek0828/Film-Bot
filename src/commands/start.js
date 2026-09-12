@@ -29,13 +29,25 @@ const DEFAULT_START_TEXT =
     `2️⃣ Yoki kino <b>kodini</b> yuboring (masalan: <i>1025</i>)\n\n` +
     `🌐 Katalogni ochish uchun pastdagi menyudan foydalaning.`;
 
-/** start payload: referral (uzun raqam) yoki kino kodi (qisqa raqam) */
+/** start payload: referral (uzun raqam) yoki kino kodi (qisqa raqam yoki kino_123) */
 const parseStartPayload = (payload, selfId) => {
-    if (!payload || !/^\d+$/.test(payload)) return {};
-    if (payload.length >= 7) {
-        return payload !== String(selfId) ? { referrerId: payload } : {};
+    if (!payload) return {};
+    const clean = String(payload).trim();
+
+    // kino_123 yoki movie_123 formatlari
+    const prefixMatch = clean.match(/^(?:kino|movie|code)_?(\d+)$/i);
+    if (prefixMatch) {
+        return { movieCode: parseInt(prefixMatch[1], 10) };
     }
-    return { movieCode: parseInt(payload, 10) };
+
+    if (!/^\d+$/.test(clean)) return {};
+
+    // 8 yoki undan ko'p xonali raqamlar — referral Telegram ID
+    if (clean.length >= 8) {
+        return clean !== String(selfId) ? { referrerId: clean } : {};
+    }
+
+    return { movieCode: parseInt(clean, 10) };
 };
 
 /** Yangi foydalanuvchi uchun referral mukofoti + aksiya VIP */

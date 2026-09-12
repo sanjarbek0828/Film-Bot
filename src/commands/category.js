@@ -46,7 +46,12 @@ export const setupCategoryCommands = (bot) => {
         try {
             const genreIndex = parseInt(ctx.match[1], 10);
             const page = parseInt(ctx.match[2], 10);
-            const genre = genreCacheList[genreIndex];
+            let genre = genreCacheList[genreIndex];
+            if (!genre) {
+                const genres = await getGenres();
+                genreCacheList = genres.map((g) => g.name);
+                genre = genreCacheList[genreIndex];
+            }
 
             if (!genre) {
                 return ctx.answerCbQuery('⚠️ Kategoriyani qayta oching', { show_alert: true });
