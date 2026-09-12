@@ -27,11 +27,16 @@ export const setupCategoryCommands = (bot) => {
 
             genreCacheList = genres.map((g) => g.name);
 
-            const buttons = genres.map((g, i) => [
-                Markup.button.callback(`🎭 ${g.name} (${g.count})`, `genre_${i}_1`),
-            ]);
+            const buttons = [];
+            for (let i = 0; i < genres.length; i += 2) {
+                const row = [Markup.button.callback(`🎭 ${genres[i].name} (${genres[i].count})`, `genre_${i}_1`)];
+                if (genres[i + 1]) {
+                    row.push(Markup.button.callback(`🎭 ${genres[i + 1].name} (${genres[i + 1].count})`, `genre_${i + 1}_1`));
+                }
+                buttons.push(row);
+            }
 
-            await ctx.reply('📂 <b>Kategoriyani tanlang:</b>', {
+            await ctx.reply('📂 <b>Kategoriyalar ro\'yxati:</b>\n\n<i>Kerakli janrni tanlang:</i>', {
                 parse_mode: 'HTML',
                 ...Markup.inlineKeyboard(buttons),
             });
@@ -61,9 +66,14 @@ export const setupCategoryCommands = (bot) => {
             if (items.length === 0) return ctx.answerCbQuery('📭 Bu janrda kino yo\'q');
 
             const skip = (page - 1) * 10;
-            let msg = `🎭 <b>${escapeHtml(genre)}</b> ${ctx.t('page_info', { page })} — ${total} ta\n\n`;
+            let msg = `🎭 <b>${escapeHtml(genre)}</b> ${ctx.t('page_info', { page })} — jami ${total} ta\n`;
+            msg += `━━━━━━━━━━━━━━━━━━━━\n\n`;
             items.forEach((movie, i) => {
-                msg += `${skip + i + 1}. 🎬 ${escapeHtml(movieTitle(movie))} — <code>${movie.code}</code>\n`;
+                const num = skip + i + 1;
+                const year = movie.year ? ` <i>(${movie.year})</i>` : '';
+                const rating = movie.ratingCount > 0 ? ` • ⭐️ ${(movie.ratingSum / movie.ratingCount).toFixed(1)}` : '';
+                msg += `<b>${num}.</b> 🎬 <b>${escapeHtml(movieTitle(movie))}</b>${year}\n`;
+                msg += `   └ 🔢 Kod: <code>${movie.code}</code>${rating}\n\n`;
             });
             msg += ctx.t('search_hint');
 

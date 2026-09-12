@@ -36,10 +36,10 @@ import logger from '../utils/logger.js';
 
 // ═══════════════════════ Anti-spam sozlamalari ═══════════════════════
 const BURST_WINDOW_MS = 1000;      // 1 sekundlik oyna
-const BURST_LIMIT = 5;             // Oynada maksimal 5 ta so'rov
-const MINUTE_LIMIT = 60;           // Daqiqada maksimal 60 ta so'rov
-const COOLDOWN_SECONDS = 30;       // Limitdan oshganda jazolash muddati
-const WARN_COOLDOWN_MS = 15_000;   // Ogohlantirishni takrorlash oralig'i
+const BURST_LIMIT = 8;             // Oynada maksimal 8 ta so'rov
+const MINUTE_LIMIT = 90;           // Daqiqada maksimal 90 ta so'rov
+const COOLDOWN_SECONDS = 5;        // Qulay 5 soniyalik cooldown (foydalanuvchini cho'chitmaslik uchun)
+const WARN_COOLDOWN_MS = 8_000;    // Ogohlantirishni takrorlash oralig'i
 
 const rateBuckets = new NodeCache({ stdTTL: 120, checkperiod: 60, useClones: false, maxKeys: 50_000 });
 const cooldowns = new NodeCache({ stdTTL: COOLDOWN_SECONDS, checkperiod: 15, maxKeys: 50_000 });
@@ -165,16 +165,17 @@ export const authMiddleware = async (ctx, next) => {
         if (ctx.updateType === 'callback_query') {
             await ctx.answerCbQuery('🚫 Siz bloklangansiz.', { show_alert: true }).catch(() => {});
         } else {
-            await safeReply(ctx, `🚫 <b>Siz botdan foydalana olmaysiz.</b>${until}`, { parse_mode: 'HTML' });
+            await safeReply(ctx, `🚫 <b>Siz botdan foydalanishdan chetlatilgansiz.</b>${until}\n\n<i>Qo'shimcha savollar bo'lsa qo'llab-quvvatlashga yozing: @${config.supportUsername}</i>`, { parse_mode: 'HTML' });
         }
         return;
     }
 
-    // ═══ 5. Majburiy obuna ═══
+    // ═══ 5. Majburiy obuna (VIP lar va adminlar uchun o'tkazib yuboriladi) ═══
     // Scene ichida (admin wizardlari) va callbacklarda tekshirmaymiz —
     // `check_subscription` tugmasi start.js da alohida ishlanadi.
     const skipSubCheck =
         ctx.isAdmin ||
+        ctx.isVip() ||
         ctx.updateType === 'callback_query' ||
         ctx.updateType === 'pre_checkout_query' ||
         ctx.updateType === 'inline_query' ||

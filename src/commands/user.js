@@ -20,11 +20,16 @@ export { sendMovie };
 
 const PAGE_SIZE = 10;
 
-/** Kino ro'yxatini chiroyli matn qilib beradi */
+/** Kino ro'yxatini zamonaviy va qulay formatda chiqaradi */
 const renderMovieList = (title, movies, { startIndex = 0 } = {}) => {
-    let msg = `${title}\n\n`;
+    let msg = title ? `${title}\n\n` : '';
     movies.forEach((movie, i) => {
-        msg += `${startIndex + i + 1}. 🎬 ${escapeHtml(movieTitle(movie))} — <code>${movie.code}</code>\n`;
+        const num = startIndex + i + 1;
+        const year = movie.year ? ` <i>(${movie.year})</i>` : '';
+        const rating = movie.ratingCount > 0 ? ` • ⭐️ ${(movie.ratingSum / movie.ratingCount).toFixed(1)}` : '';
+        const genre = movie.genre ? ` • 🎭 ${escapeHtml(movie.genre)}` : '';
+        msg += `<b>${num}.</b> 🎬 <b>${escapeHtml(movieTitle(movie))}</b>${year}\n`;
+        msg += `   └ 🔢 Kod: <code>${movie.code}</code>${rating}${genre}\n\n`;
     });
     return msg;
 };
@@ -39,8 +44,8 @@ export const setupUserCommands = (bot) => {
     bot.hears(menuMatcher('menu_new'), async (ctx) => {
         try {
             const movies = await getNewMovies(10);
-            if (movies.length === 0) return ctx.reply(ctx.t('not_found'));
-            const msg = renderMovieList(`🆕 <b>${ctx.t('menu_new')}</b>`, movies) + ctx.t('search_hint');
+            if (movies.length === 0) return ctx.reply(ctx.t('not_found'), { parse_mode: 'HTML' });
+            const msg = renderMovieList(`🆕 <b>${ctx.t('menu_new')}</b> (So'nggi premyeralar)`, movies) + ctx.t('search_hint');
             await ctx.replyWithHTML(msg);
         } catch (error) {
             logger.error('New movies:', error);
@@ -52,11 +57,14 @@ export const setupUserCommands = (bot) => {
     bot.hears(menuMatcher('menu_top'), async (ctx) => {
         try {
             const movies = await getTopMovies(10);
-            if (movies.length === 0) return ctx.reply(ctx.t('not_found'));
-            let msg = `🔥 <b>${ctx.t('menu_top')}</b>\n\n`;
+            if (movies.length === 0) return ctx.reply(ctx.t('not_found'), { parse_mode: 'HTML' });
+            let msg = `🔥 <b>${ctx.t('menu_top')}</b> (Eng ko'p ko'rilgan filmlar)\n`;
+            msg += `━━━━━━━━━━━━━━━━━━━━\n\n`;
             movies.forEach((movie, i) => {
-                const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i + 1}.`;
-                msg += `${medal} ${escapeHtml(movieTitle(movie))} — 👁 ${movie.views || 0} | <code>${movie.code}</code>\n`;
+                const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `<b>${i + 1}.</b>`;
+                const year = movie.year ? ` <i>(${movie.year})</i>` : '';
+                msg += `${medal} 🎬 <b>${escapeHtml(movieTitle(movie))}</b>${year}\n`;
+                msg += `   └ 👁 ${movie.views || 0} marta ko'rildi | 🔢 Kod: <code>${movie.code}</code>\n\n`;
             });
             await ctx.replyWithHTML(msg + ctx.t('search_hint'));
         } catch (error) {
@@ -69,7 +77,7 @@ export const setupUserCommands = (bot) => {
     bot.hears(menuMatcher('menu_random'), async (ctx) => {
         try {
             const movie = await getRandomMovie();
-            if (!movie) return ctx.reply(ctx.t('not_found'));
+            if (!movie) return ctx.reply(ctx.t('not_found'), { parse_mode: 'HTML' });
             await sendMovie(ctx, movie, ctx.session?.user);
         } catch (error) {
             logger.error('Random movie:', error);
@@ -81,10 +89,10 @@ export const setupUserCommands = (bot) => {
     bot.hears(menuMatcher('menu_recommend'), async (ctx) => {
         try {
             const user = ctx.session?.user;
-            if (!user?._id) return ctx.reply(ctx.t('not_found'));
+            if (!user?._id) return ctx.reply(ctx.t('not_found'), { parse_mode: 'HTML' });
             const movies = await getSmartRecommendations(user.telegramId, 6);
-            if (movies.length === 0) return ctx.reply(ctx.t('not_found'));
-            const msg = renderMovieList('✨ <b>Siz uchun tavsiya:</b>', movies) + ctx.t('search_hint');
+            if (movies.length === 0) return ctx.reply(ctx.t('not_found'), { parse_mode: 'HTML' });
+            const msg = renderMovieList('✨ <b>Siz uchun tavsiyalar:</b>', movies) + ctx.t('search_hint');
             await ctx.replyWithHTML(msg);
         } catch (error) {
             logger.error('Recommend:', error);
@@ -100,19 +108,23 @@ export const setupUserCommands = (bot) => {
             const vip = isVipUser(user);
             const favCount = user._id ? await Favorite.countDocuments({ user: user._id }).catch(() => 0) : 0;
 
-            let msg = `👤 <b>${ctx.t('menu_cabinet')}</b>\n\n`;
-            msg += `🆔 ID: <code>${ctx.from.id}</code>\n`;
-            msg += `🎬 Ko'rilgan kinolar: <b>${user.moviesWatched || 0}</b>\n`;
-            msg += `❤️ Sevimlilar: <b>${favCount}</b>\n`;
-            msg += `🎁 Ballar: <b>${user.points || 0}</b>\n`;
+            let msg = `👤 <b>${ctx.t('menu_cabinet')}</b>\n`;
+            msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+            msg += `🆔 <b>ID:</b> <code>${ctx.from.id}</code>\n`;
+            msg += `👤 <b>Ism:</b> ${escapeHtml(ctx.from.first_name || 'Foydalanuvchi')}\n`;
+            msg += `🎬 <b>Ko'rilgan filmlar:</b> <code>${user.moviesWatched || 0}</code> ta\n`;
+            msg += `❤️ <b>Sevimlilar:</b> <code>${favCount}</code> ta\n`;
+            msg += `🎁 <b>Jamg'arilgan ballar:</b> <code>${user.points || 0}</code> ball\n`;
+            msg += `👥 <b>Taklif etilgan do'stlar:</b> <code>${user.referralCount || 0}</code> ta\n`;
+            msg += `━━━━━━━━━━━━━━━━━━━━\n`;
             msg += vip
-                ? `\n💎 <b>Status:</b> VIP (${vipDaysLeft(user)} kun qoldi)`
-                : `\n👤 <b>Status:</b> Oddiy foydalanuvchi`;
+                ? `💎 <b>Maqom:</b> VIP (⭐️ ${vipDaysLeft(user)} kun qoldi)`
+                : `👤 <b>Maqom:</b> Oddiy foydalanuvchi`;
 
             const buttons = [
                 [Markup.button.callback('❤️ Sevimlilar', 'cb_fav'), Markup.button.callback('📜 Tarix', 'cb_history')],
-                [Markup.button.callback('🎁 Kunlik bonus', 'cb_bonus'), Markup.button.callback('🗣 Do\'st taklif qilish', 'cb_invite')],
-                [vip ? Markup.button.callback('👑 VIP holati', 'cb_vip') : Markup.button.callback('💎 VIP olish', 'vip_info')],
+                [Markup.button.callback('🎁 Kunlik bonus (+25)', 'cb_bonus'), Markup.button.callback('🗣 Do\'st taklif qilish', 'cb_invite')],
+                [vip ? Markup.button.callback('👑 VIP holati', 'cb_vip') : Markup.button.callback('💎 VIP sotib olish', 'vip_info')],
             ];
 
             await ctx.reply(msg, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) });
@@ -130,7 +142,7 @@ export const setupUserCommands = (bot) => {
             if (!user?._id) return;
             const favorites = await Favorite.find({ user: user._id }).populate('movie').lean();
             const valid = favorites.filter((f) => f.movie);
-            if (valid.length === 0) return ctx.reply('📭 Sevimlilar bo\'sh.', { parse_mode: 'HTML' });
+            if (valid.length === 0) return ctx.reply('📭 <b>Sevimlilar ro\'yxatingiz bo\'sh.</b>\n\nKinolarni saqlash uchun film kartasidagi «❤️ Saqlash» tugmasini bosing.', { parse_mode: 'HTML' });
             const msg = renderMovieList('❤️ <b>Sevimli kinolaringiz:</b>', valid.map((f) => f.movie)) + ctx.t('search_hint');
             await ctx.replyWithHTML(msg);
         } catch (error) {
@@ -144,7 +156,7 @@ export const setupUserCommands = (bot) => {
             if (!ctx.isVip()) return ctx.answerCbQuery(ctx.t('vip_restricted'), { show_alert: true });
             await ctx.answerCbQuery().catch(() => {});
             const history = await getWatchHistory(ctx.from.id, 20);
-            if (history.length === 0) return ctx.reply('📭 Tarix bo\'sh.');
+            if (history.length === 0) return ctx.reply('📭 <b>Ko\'rishlar tarixi bo\'sh.</b>\n\nSiz hali birorta ham kino ko\'rmadingiz.', { parse_mode: 'HTML' });
             const msg = renderMovieList('📜 <b>Ko\'rishlar tarixi:</b>', history.map((h) => h.movie)) + ctx.t('search_hint');
             await ctx.replyWithHTML(msg);
         } catch (error) {
@@ -215,13 +227,15 @@ export const setupUserCommands = (bot) => {
             buttons.push([Markup.button.callback('❌ Yopish', 'cancel_pay')]);
 
             await ctx.reply(
-                `💎 <b>VIP obuna</b>\n\n` +
-                `VIP bilan siz:\n` +
-                `├ 🎬 Kinolarni cheklovsiz yuklab olasiz\n` +
-                `├ 💬 Sharh qoldirasiz\n` +
-                `├ ⭐ Sevimlilar va tarixdan foydalanasiz\n` +
-                `└ 🚫 Reklamalarsiz ishlaysiz\n\n` +
-                `<i>To'lov Telegram Stars orqali. Muddatni tanlang:</i>`,
+                `💎 <b>VIP obuna imtiyozlari</b>\n` +
+                `━━━━━━━━━━━━━━━━━━━━\n\n` +
+                `✨ VIP maqomi bilan siz quyidagi barcha imkoniyatlarga ega bo'lasiz:\n` +
+                `├ 🎬 Kinolarni to'g'ridan-to'g'ri <b>yuklab olish</b>\n` +
+                `├ ⚡️ <b>Eng yuqori tezlik</b> va himoyalangan ulanish\n` +
+                `├ 💬 Filmlarga <b>sharh va baholar</b> qoldirish\n` +
+                `├ ❤️ <b>Sevimlilar</b> va to'liq ko'rishlar tarixi\n` +
+                `└ 🚫 <b>Majburiy kanallarsiz</b> qulay tomosha\n\n` +
+                `⭐️ <i>Telegram Stars orqali tezkor va xavfsiz to'lov qiling:</i>`,
                 { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) }
             );
         } catch (error) {
@@ -269,9 +283,9 @@ export const setupUserCommands = (bot) => {
             if (updated) {
                 if (ctx.session) ctx.session.user = updated;
                 await ctx.reply(
-                    `🎉 <b>To'lov muvaffaqiyatli!</b>\n\n` +
-                    `💎 VIP <b>${new Date(updated.vipUntil).toLocaleDateString('uz-UZ')}</b> gacha aktiv.\n\n` +
-                    `Endi barcha imkoniyatlardan bahramand bo'ling!`,
+                    `🎉 <b>To'lov muvaffaqiyatli qabul qilindi!</b>\n\n` +
+                    `💎 VIP obuna <b>${new Date(updated.vipUntil).toLocaleDateString('uz-UZ')}</b> gacha faollashtirildi.\n\n` +
+                    `🍿 Barcha filmlardan va premium imtiyozlardan bahramand bo'ling!`,
                     { parse_mode: 'HTML' }
                 );
                 setTimeout(() => sendMainMenu(ctx), 600);

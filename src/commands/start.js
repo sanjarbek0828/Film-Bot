@@ -7,27 +7,16 @@ import { getJsonConfig, CONFIG_KEYS } from '../services/configService.js';
 import { checkSubscription, invalidateUserSubscription } from '../services/subscriptionService.js';
 import { extendVip, updateUser } from '../services/userService.js';
 import { createTranslator, SUPPORTED_LANGUAGES } from '../utils/locales.js';
-import { sendMainMenu, buildSettingsKeyboard, menuMatcher } from '../utils/menuUtils.js';
+import { sendMainMenu, buildSettingsKeyboard, menuMatcher, isVipUser } from '../utils/menuUtils.js';
 import { sendMovie } from '../bot/sendMovie.js';
 
-/**
- * /start, /help, til tanlash, obuna tekshiruvi.
- *
- * TUZATILGAN BUGLAR:
- *  - Referral: eski kod referrer VIP ni faqat har 10-taklifda bersa-da,
- *    xabarni har safar noto'g'ri kalit bilan yuborardi. Endi soddalashtirildi
- *    va `extendVip` orqali xavfsiz.
- *  - START_GIF va GLOBAL_VIP endi markazlashgan `configService` orqali
- *    (alohida keshlar sinxrondan chiqmaydi).
- *  - Obuna muvaffaqiyatli bo'lgach `pendingMovieCode` avtomatik yuboriladi.
- */
-
 const DEFAULT_START_TEXT =
-    `🎬 <b>FilmXBotga xush kelibsiz!</b>\n\n` +
-    `🔍 Kino topish juda oson:\n` +
-    `1️⃣ Kino <b>nomini</b> yozing (masalan: <i>Venom</i>)\n` +
-    `2️⃣ Yoki kino <b>kodini</b> yuboring (masalan: <i>1025</i>)\n\n` +
-    `🌐 Katalogni ochish uchun pastdagi menyudan foydalaning.`;
+    `🎬 <b>FilmX botiga xush kelibsiz!</b>\n\n` +
+    `🔍 <b>Kino topish juda oson:</b>\n` +
+    `├ 🔢 Kino <b>kodini</b> yuboring (masalan: <code>1025</code>)\n` +
+    `├ 📝 Yoki kino <b>nomini</b> yozing (masalan: <i>Venom</i>)\n` +
+    `└ 🌐 Yoki <b>«🎬 Katalog»</b> orqali qulay tanlang\n\n` +
+    `👇 Boshlash uchun menyudan foydalaning:`;
 
 /** start payload: referral (uzun raqam) yoki kino kodi (qisqa raqam yoki kino_123) */
 const parseStartPayload = (payload, selfId) => {
@@ -94,10 +83,14 @@ const handleNewUserBonuses = async (ctx, user, referrerId) => {
 
 /** START_GIF sozlamasi bo'lsa uni, aks holda standart matnni yuboradi */
 const sendWelcome = async (ctx) => {
+    const welcomeFallback = ctx.t
+        ? ctx.t('welcome', { name: escapeHtml(ctx.from?.first_name || 'Foydalanuvchi') })
+        : DEFAULT_START_TEXT;
+
     try {
         const gif = await getJsonConfig(CONFIG_KEYS.START_GIF);
         if (gif?.fileId && gif?.type) {
-            const caption = gif.caption || DEFAULT_START_TEXT;
+            const caption = gif.caption || welcomeFallback;
             const opts = { caption, parse_mode: 'HTML' };
             if (gif.type === 'animation') return void (await ctx.replyWithAnimation(gif.fileId, opts));
             if (gif.type === 'photo') return void (await ctx.replyWithPhoto(gif.fileId, opts));
@@ -106,7 +99,7 @@ const sendWelcome = async (ctx) => {
     } catch (error) {
         logger.debug('START_GIF skip:', error.message);
     }
-    await ctx.reply(DEFAULT_START_TEXT, { parse_mode: 'HTML' }).catch(() => {});
+    await ctx.reply(welcomeFallback, { parse_mode: 'HTML' }).catch(() => {});
 };
 
 export const setupStartCommand = (bot) => {
@@ -114,11 +107,20 @@ export const setupStartCommand = (bot) => {
     bot.command('help', async (ctx) => {
         if (ctx.session?.__scenes?.current) await ctx.scene.leave().catch(() => {});
         await ctx.reply(
-            `ℹ️ <b>Yordam va buyruqlar</b>\n\n` +
-            `🔹 /start — Botni qayta ishga tushirish\n` +
-            `🔹 /help — Yordam\n` +
-            `🔹 /support — Admin bilan bog'lanish\n\n` +
-            `🎯 <i>Kino topish uchun kodini yoki nomini yuboring.</i>`,
+            `ℹ️ <b>Yordam va qo'llanma</b>\n` +
+            `━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `🔍 <b>Kino qidirish usullari:</b>\n` +
+            `├ 🔢 Kino <b>kodini</b> yuboring (masalan: <code>1025</code>)\n` +
+            `├ 📝 Kino <b>nomini</b> yozing (masalan: <i>Venom</i>)\n` +
+            `└ 🌐 Yoki <b>«🎬 Katalog»</b> orqali qulay tanlang\n\n` +
+            `⚡️ <b>Foydali buyruqlar:</b>\n` +
+            `├ /start — Botni yangilash / bosh menyu\n` +
+            `├ /promo — Promokod kiritish va sovg'a olish\n` +
+            `├ /request — Botga yangi film so'rash\n` +
+            `├ /support — Texnik yordam bilan bog'lanish\n` +
+            `└ /help — Ushbu yordam oynasi\n\n` +
+            `💎 <b>VIP obuna imkoniyatlari:</b>\n` +
+            `Kinolarni to'g'ridan-to'g'ri yuklab olish, sharhlar yozish va majburiy obunasiz tomosha qilish imkonini beradi.`,
             { parse_mode: 'HTML' }
         ).catch(() => {});
     });
@@ -165,7 +167,8 @@ export const setupStartCommand = (bot) => {
             ctx.t = createTranslator(user.language || 'uz');
 
             // ═══ Obuna tekshiruvi (deeplink bilan kelishi mumkin) ═══
-            if (!ctx.isAdmin) {
+            const skipSubCheck = ctx.isAdmin || (ctx.isVip ? ctx.isVip() : isVipUser(user));
+            if (!skipSubCheck) {
                 const status = await checkSubscription(ctx);
                 if (status !== true && Array.isArray(status) && status.length > 0) {
                     if (movieCode) ctx.session.pendingMovieCode = movieCode;

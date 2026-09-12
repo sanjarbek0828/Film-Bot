@@ -9,9 +9,10 @@ const requestScene = new Scenes.WizardScene(
     // Step 1: Ask for movie name
     async (ctx) => {
         try {
-            await ctx.reply(ctx.t('request_prompt'), Markup.inlineKeyboard([
-                [Markup.button.callback(ctx.t('cancel'), 'cancel_request')]
-            ]));
+            await ctx.reply(ctx.t('request_prompt'), {
+                parse_mode: 'HTML',
+                ...Markup.inlineKeyboard([[Markup.button.callback(ctx.t('cancel'), 'cancel_request')]])
+            });
             return ctx.wizard.next();
         } catch (e) {
             logger.error('Request Step 1 error:', e);
@@ -28,7 +29,7 @@ const requestScene = new Scenes.WizardScene(
             }
 
             if (!ctx.message || !ctx.message.text) {
-                return ctx.reply(ctx.t('review_text_error'));
+                return ctx.reply(ctx.t('review_text_error'), { parse_mode: 'HTML' });
             }
 
             const movieName = ctx.message.text;
@@ -46,7 +47,7 @@ const requestScene = new Scenes.WizardScene(
             return ctx.scene.leave();
         } catch (e) {
             logger.error('Request Step 2 error:', e);
-            ctx.reply(ctx.t('error_general'));
+            ctx.reply(ctx.t('error_general'), { parse_mode: 'HTML' }).catch(() => {});
             return ctx.scene.leave();
         }
     }
