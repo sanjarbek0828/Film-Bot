@@ -20,12 +20,11 @@ import userProfileScene from '../scenes/userProfileScene.js';
 import globalVipScene from '../scenes/globalVipScene.js';
 import directMessageScene from '../scenes/directMessageScene.js';
 import startGifScene from '../scenes/startGifScene.js';
-import addFavCodeScene from '../scenes/addFavCodeScene.js';
 import paymentReceiptScene from '../scenes/paymentReceiptScene.js';
 import bulkEditMovieScene from '../scenes/bulkEditMovieScene.js';
 
 // Command setups
-import { setupAdminCommands } from '../commands/admin.js';
+import { setupAdminCommands } from '../commands/admin/index.js';
 import { setupStartCommand } from '../commands/start.js';
 import { setupUserCommands } from '../commands/user.js';
 import { setupCategoryCommands, setupInlineSearch } from '../commands/category.js';
@@ -52,7 +51,6 @@ const stage = new Scenes.Stage([
     globalVipScene,
     directMessageScene,
     startGifScene,
-    addFavCodeScene,
     paymentReceiptScene,
     bulkEditMovieScene,
 ]);

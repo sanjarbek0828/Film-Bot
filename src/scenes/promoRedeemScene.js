@@ -38,52 +38,52 @@ const redeemSchema = new Scenes.WizardScene(
             }
 
             const inputCode = text.toUpperCase();
+            const userIdStr = ctx.from.id.toString();
 
-            // Promokodni topish
-            const promo = await PromoCode.findOne({ code: inputCode });
+            // Atomik promokod sarflash (race-condition himoyasi)
+            const updatedPromo = await PromoCode.findOneAndUpdate(
+                {
+                    code: inputCode,
+                    usedBy: { $ne: userIdStr },
+                    $expr: { $lt: [{ $size: '$usedBy' }, '$usageLimit'] },
+                    $or: [
+                        { expiryDate: null },
+                        { expiryDate: { $gt: new Date() } }
+                    ]
+                },
+                {
+                    $push: { usedBy: userIdStr }
+                },
+                { new: true }
+            );
 
-            if (!promo) {
-                await ctx.reply('❌ <b>Bunday promokod mavjud emas.</b>\n\n<i>Qayta urinib ko\'ring yoki "❌ Bekor qilish" bosing.</i>', { parse_mode: 'HTML' });
-                return; // Scenariyda qolish - qayta kiritishga imkon berish
-            }
+            if (!updatedPromo) {
+                const existing = await PromoCode.findOne({ code: inputCode });
+                if (!existing) {
+                    await ctx.reply('❌ <b>Bunday promokod mavjud emas.</b>\n\n<i>Qayta urinib ko\'ring yoki "❌ Bekor qilish" bosing.</i>', { parse_mode: 'HTML' });
+                    return; // Scenariyda qolish
+                }
 
-            // Muddati tugaganligini tekshirish
-            if (promo.expiryDate && new Date() > promo.expiryDate) {
-                await ctx.reply('❌ <b>Bu promokod muddati tugagan.</b>', { parse_mode: 'HTML', ...Markup.removeKeyboard() });
+                if (existing.expiryDate && new Date() > existing.expiryDate) {
+                    await ctx.reply('❌ <b>Bu promokod muddati tugagan.</b>', { parse_mode: 'HTML', ...Markup.removeKeyboard() });
+                } else if (existing.usedBy.includes(userIdStr)) {
+                    await ctx.reply('⚠️ <b>Siz bu promokodni allaqachon ishlatgansiz.</b>', { parse_mode: 'HTML', ...Markup.removeKeyboard() });
+                } else {
+                    await ctx.reply(`❌ <b>Bu promokod to'liq ishlatib bo'lingan.</b>\n\n👥 Limit: ${existing.usageLimit} ta odam`, { parse_mode: 'HTML', ...Markup.removeKeyboard() });
+                }
                 setTimeout(() => sendMainMenu(ctx), 500);
                 return ctx.scene.leave();
             }
 
-            // Usage limit tekshirish
-            if (promo.usedBy.length >= promo.usageLimit) {
-                await ctx.reply('❌ <b>Bu promokod to\'liq ishlatib bo\'lingan.</b>\n\n👥 Limit: ' + promo.usageLimit + ' ta odam', { parse_mode: 'HTML', ...Markup.removeKeyboard() });
-                setTimeout(() => sendMainMenu(ctx), 500);
-                return ctx.scene.leave();
-            }
-
-            // Foydalanuvchi allaqachon ishlatganligini tekshirish
-            if (promo.usedBy.includes(ctx.from.id.toString())) {
-                await ctx.reply('⚠️ <b>Siz bu promokodni allaqachon ishlatgansiz.</b>', { parse_mode: 'HTML', ...Markup.removeKeyboard() });
-                setTimeout(() => sendMainMenu(ctx), 500);
-                return ctx.scene.leave();
-            }
-
-            // ✅ MUVAFFAQIYAT - Promokod to'g'ri!
-            promo.usedBy.push(ctx.from.id.toString());
-            await promo.save();
-
-            const days = promo.rewardDays || 1; // Default 1 kun (24 soat)
-
-            // VIP berish (kesh sinxron)
+            const days = updatedPromo.rewardDays || 1;
             const user = await extendVip(ctx.from.id, days, 'promo');
             if (!user) {
                 await ctx.reply('❌ Foydalanuvchi topilmadi.', Markup.removeKeyboard());
                 return ctx.scene.leave();
             }
 
-            // Log yozish
             logAdminAction('SYSTEM', 'promo_redeem', ctx.from.id,
-                `Redeemed ${inputCode} (+${days} days VIP). Remaining uses: ${promo.usageLimit - promo.usedBy.length}`);
+                `Redeemed ${inputCode} (+${days} days VIP). Remaining uses: ${updatedPromo.usageLimit - updatedPromo.usedBy.length}`);
 
             // Muvaffaqiyat xabari
             const successMsg = `✅ <b>Tabriklaymiz!</b>\n\n` +

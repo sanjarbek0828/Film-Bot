@@ -9,6 +9,7 @@ import { extendVip, updateUser } from '../services/userService.js';
 import { createTranslator, SUPPORTED_LANGUAGES } from '../utils/locales.js';
 import { sendMainMenu, buildSettingsKeyboard, menuMatcher, isVipUser } from '../utils/menuUtils.js';
 import { sendMovie } from '../bot/sendMovie.js';
+import { escapeHtml } from '../utils/html.js';
 
 const DEFAULT_START_TEXT =
     `🎬 <b>FilmX botiga xush kelibsiz!</b>\n\n` +

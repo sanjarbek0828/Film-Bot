@@ -102,16 +102,27 @@ const bulkEditMovieScene = new Scenes.WizardScene(
             }
 
             let updatedCount = 0;
-            let episode = 1;
 
-            for (const movie of movies) {
-                movie.poster = posterFileId;
-                if (newTitle) {
-                    movie.title = `${newTitle} - ${episode}-qism`;
-                }
-                await movie.save();
-                updatedCount++;
-                episode++;
+            if (!newTitle) {
+                const res = await Movie.updateMany(
+                    { code: { $gte: startCode, $lte: endCode } },
+                    { $set: { poster: posterFileId } }
+                );
+                updatedCount = res.modifiedCount;
+            } else {
+                const bulkOps = movies.map((m, idx) => ({
+                    updateOne: {
+                        filter: { _id: m._id },
+                        update: {
+                            $set: {
+                                poster: posterFileId,
+                                title: `${newTitle} - ${idx + 1}-qism`,
+                            },
+                        },
+                    },
+                }));
+                const res = await Movie.bulkWrite(bulkOps);
+                updatedCount = res.modifiedCount;
             }
 
             await ctx.reply(`✅ <b>Ommaviy tahrirlash muvaffaqiyatli yakunlandi!</b>\n\n🔄 Tahrirlangan kinolar soni: <b>${updatedCount}</b> ta`, { parse_mode: 'HTML' });
