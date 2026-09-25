@@ -41,7 +41,7 @@ export const setupUserCommands = (bot) => {
     );
 
     // ═══ YANGI KINOLAR ═══
-    bot.hears(menuMatcher('menu_new'), async (ctx) => {
+    const handleNewMovies = async (ctx) => {
         try {
             const movies = await getNewMovies(10);
             if (movies.length === 0) return ctx.reply(ctx.t('not_found'), { parse_mode: 'HTML' });
@@ -51,10 +51,12 @@ export const setupUserCommands = (bot) => {
             logger.error('New movies:', error);
             ctx.reply(ctx.t('error_general')).catch(() => {});
         }
-    });
+    };
+    bot.hears(menuMatcher('menu_new'), handleNewMovies);
+    bot.command('new', handleNewMovies);
 
     // ═══ TOP KINOLAR ═══
-    bot.hears(menuMatcher('menu_top'), async (ctx) => {
+    const handleTopMovies = async (ctx) => {
         try {
             const movies = await getTopMovies(10);
             if (movies.length === 0) return ctx.reply(ctx.t('not_found'), { parse_mode: 'HTML' });
@@ -71,10 +73,12 @@ export const setupUserCommands = (bot) => {
             logger.error('Top movies:', error);
             ctx.reply(ctx.t('error_general')).catch(() => {});
         }
-    });
+    };
+    bot.hears(menuMatcher('menu_top'), handleTopMovies);
+    bot.command('top', handleTopMovies);
 
     // ═══ TASODIFIY KINO ═══
-    bot.hears(menuMatcher('menu_random'), async (ctx) => {
+    const handleRandomMovie = async (ctx) => {
         try {
             const movie = await getRandomMovie();
             if (!movie) return ctx.reply(ctx.t('not_found'), { parse_mode: 'HTML' });
@@ -83,7 +87,9 @@ export const setupUserCommands = (bot) => {
             logger.error('Random movie:', error);
             ctx.reply(ctx.t('error_general')).catch(() => {});
         }
-    });
+    };
+    bot.hears(menuMatcher('menu_random'), handleRandomMovie);
+    bot.command('random', handleRandomMovie);
 
     // ═══ TAVSIYA (AI) ═══
     bot.hears(menuMatcher('menu_recommend'), async (ctx) => {
@@ -101,7 +107,7 @@ export const setupUserCommands = (bot) => {
     });
 
     // ═══ SHAXSIY KABINET ═══
-    bot.hears(menuMatcher('menu_cabinet'), async (ctx) => {
+    const handleCabinet = async (ctx) => {
         try {
             const user = ctx.session?.user;
             if (!user) return;
@@ -132,7 +138,9 @@ export const setupUserCommands = (bot) => {
             logger.error('Cabinet:', error);
             ctx.reply(ctx.t('error_general')).catch(() => {});
         }
-    });
+    };
+    bot.hears(menuMatcher('menu_cabinet'), handleCabinet);
+    bot.command('cabinet', handleCabinet);
 
     // ═══ SEVIMLILAR ═══
     bot.action('cb_fav', async (ctx) => {
@@ -332,10 +340,56 @@ export const setupUserCommands = (bot) => {
         }
     });
 
-    // ═══ SHARH QOLDIRISH (VIP) ═══
+    // ═══ SHARHLARNI O'QISH VA BAHOLASH ═══
+    bot.action(/^read_reviews_(\d+)$/, async (ctx) => {
+        try {
+            await ctx.answerCbQuery().catch(() => {});
+            const code = parseInt(ctx.match[1], 10);
+            const movie = await getMovieByCode(code);
+            if (!movie) return ctx.reply('📭 Kino topilmadi.').catch(() => {});
+
+            const title = escapeHtml(movieTitle(movie));
+            const avgRating = movie.ratingCount > 0 ? (movie.ratingSum / movie.ratingCount).toFixed(1) : null;
+            const count = movie.ratingCount || 0;
+
+            let msg = `💬 <b>«${title}» — Fikrlar va baholar</b>\n`;
+            msg += `━━━━━━━━━━━━━━━━━━━━\n`;
+            if (avgRating) {
+                msg += `⭐️ <b>O'rtacha baho:</b> ${avgRating} / 5 (${count} ta baho)\n\n`;
+            } else {
+                msg += `⭐️ <i>Ushbu filmga hali baho berilmagan.</i>\n\n`;
+            }
+
+            const reviews = (movie.reviews || []).slice(-5).reverse();
+            if (reviews.length > 0) {
+                msg += `📝 <b>So'nggi sharhlar:</b>\n\n`;
+                reviews.forEach((r) => {
+                    const stars = '⭐️'.repeat(Math.min(5, Math.max(1, r.rating || 5)));
+                    msg += `${stars} <b>${escapeHtml(r.userName || 'Foydalanuvchi')}</b>\n`;
+                    if (r.comment) msg += `<i>«${escapeHtml(r.comment)}»</i>\n\n`;
+                });
+            } else {
+                msg += `📭 <i>Hozircha sharhlar yo'q. Birinchi bo'lib o'z fikringizni bildiring!</i>\n\n`;
+            }
+
+            const buttons = [
+                [
+                    Markup.button.callback('⭐️ Baho berish', `review_${movie.code}`),
+                    Markup.button.callback('⚠️ Shikoyat', `report_${movie.code}`),
+                ],
+                [Markup.button.callback('❌ Yopish', 'close_msg')],
+            ];
+
+            await ctx.reply(msg, { parse_mode: 'HTML', ...Markup.inlineKeyboard(buttons) });
+        } catch (error) {
+            logger.error('read_reviews:', error);
+            ctx.answerCbQuery('❌').catch(() => {});
+        }
+    });
+
+    // ═══ SHARH QOLDIRISH ═══
     bot.action(/^review_(\d+)$/, async (ctx) => {
         try {
-            if (!ctx.isVip()) return ctx.answerCbQuery(ctx.t('vip_only_comment'), { show_alert: true });
             await ctx.answerCbQuery().catch(() => {});
             return ctx.scene.enter('REVIEW_SCENE', { movieCode: parseInt(ctx.match[1], 10) });
         } catch (error) {
@@ -343,36 +397,19 @@ export const setupUserCommands = (bot) => {
         }
     });
 
-    // ═══ SHARHLARNI O'QISH (VIP) ═══
-    bot.action(/^read_reviews_(\d+)$/, async (ctx) => {
-        try {
-            if (!ctx.isVip()) return ctx.answerCbQuery(ctx.t('vip_restricted_review'), { show_alert: true });
-            const movie = await getMovieByCode(parseInt(ctx.match[1], 10));
-            if (!movie?.reviews?.length) return ctx.answerCbQuery('📭 Hali sharhlar yo\'q', { show_alert: true });
-
-            await ctx.answerCbQuery().catch(() => {});
-            const reviews = movie.reviews.slice(-5).reverse();
-            let msg = `💬 <b>"${escapeHtml(movieTitle(movie))}" sharhlari:</b>\n\n`;
-            reviews.forEach((r) => {
-                msg += `${'⭐️'.repeat(r.rating || 0)} <b>${escapeHtml(r.userName || 'Foydalanuvchi')}</b>\n`;
-                msg += `<i>${escapeHtml(r.comment || '')}</i>\n\n`;
-            });
-            await ctx.replyWithHTML(msg);
-        } catch (error) {
-            logger.error('read_reviews:', error);
-            ctx.answerCbQuery('❌').catch(() => {});
-        }
-    });
-
-    // ═══ SHIKOYAT (VIP) ═══
+    // ═══ SHIKOYAT ═══
     bot.action(/^report_(\d+)$/, async (ctx) => {
         try {
-            if (!ctx.isVip()) return ctx.answerCbQuery(ctx.t('vip_restricted_report'), { show_alert: true });
-            await ctx.answerCbQuery('📝 Shikoyatingizni yozing...').catch(() => {});
+            await ctx.answerCbQuery('📝 Shikoyat yozish...').catch(() => {});
             return ctx.scene.enter('REPORT_SCENE', { movieCode: ctx.match[1] });
         } catch (error) {
             logger.error('report enter:', error);
         }
+    });
+
+    bot.action('close_msg', async (ctx) => {
+        await ctx.answerCbQuery().catch(() => {});
+        await ctx.deleteMessage().catch(() => {});
     });
 
     // ═══ ULASHISH ═══

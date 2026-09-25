@@ -20,7 +20,7 @@ import { menuMatcher } from '../utils/menuUtils.js';
 let genreCacheList = [];
 
 export const setupCategoryCommands = (bot) => {
-    bot.hears(menuMatcher('menu_category'), async (ctx) => {
+    const handleCategory = async (ctx) => {
         try {
             const genres = await getGenres();
             if (genres.length === 0) return ctx.reply('📭 Hozircha kategoriyalar yo\'q.');
@@ -44,7 +44,9 @@ export const setupCategoryCommands = (bot) => {
             logger.error('Category menu:', error);
             ctx.reply(ctx.t('error_general')).catch(() => {});
         }
-    });
+    };
+    bot.hears(menuMatcher('menu_category'), handleCategory);
+    bot.command(['genres', 'categories'], handleCategory);
 
     // genre_{index}_{page}
     bot.action(/^genre_(\d+)_(\d+)$/, async (ctx) => {

@@ -242,9 +242,15 @@ const start = async () => {
 
     try {
         await bot.telegram.setMyCommands([
-            { command: 'start', description: 'Bosh menyu (qayta ishga tushirish)' },
-            { command: 'help', description: 'Yordam' },
-            { command: 'support', description: 'Admin bilan bog\'lanish' },
+            { command: 'start', description: '🎬 Bosh menyu' },
+            { command: 'top', description: '🔥 Top kinolar' },
+            { command: 'new', description: '🆕 Yangi premyeralar' },
+            { command: 'random', description: '🎲 Tasodifiy film' },
+            { command: 'cabinet', description: '👤 Shaxsiy kabinet' },
+            { command: 'genres', description: '📂 Janrlar va toifalar' },
+            { command: 'promo', description: '🎁 Promokod ishlatish' },
+            { command: 'help', description: 'ℹ️ Yordam va qo\'llanma' },
+            { command: 'support', description: '📞 Bog\'lanish' },
         ]);
 
         if (config.webAppUrl) {

@@ -21,39 +21,35 @@ import { isVipUser } from '../utils/menuUtils.js';
  *     deb aytilardi, lekin poster/link zaxira varianti sinalmasdi.
  */
 
-/** Kino uchun inline tugmalarni yasaydi */
+/** Kino uchun inline tugmalarni yasaydi (ixcham, zamonaviy 2 qator) */
 const buildMovieButtons = (movie, { isVip, botUsername }) => {
     const rows = [];
-    const primary = [];
 
+    // 1-qator: Asosiy amallar (Saqlash va Ulashish)
+    const row1 = [];
     if (movie._id) {
-        primary.push(Markup.button.callback('❤️ Saqlash', `fav_${movie._id}`));
+        row1.push(Markup.button.callback('❤️ Saqlash', `fav_${movie._id}`));
     }
-    if (botUsername) {
-        primary.push(Markup.button.switchToChat('📤 Ulashish', String(movie.code)));
+    if (botUsername && movie.code) {
+        row1.push(Markup.button.switchToChat('📤 Ulashish', String(movie.code)));
     }
-    if (primary.length > 0) rows.push(primary);
+    if (row1.length > 0) rows.push(row1);
 
-    const secondary = [];
+    // 2-qator: Fikrlar va O'xshash filmlar
+    const row2 = [];
     if (movie.code) {
-        secondary.push(Markup.button.callback('⭐️ Baho berish', `review_${movie.code}`));
-        secondary.push(Markup.button.callback('💬 Sharhlar', `read_reviews_${movie.code}`));
+        row2.push(Markup.button.callback('💬 Sharhlar', `read_reviews_${movie.code}`));
+        row2.push(Markup.button.callback('✨ O\'xshash', `similar_${movie.code}`));
     }
-    if (secondary.length > 0) rows.push(secondary);
+    if (row2.length > 0) rows.push(row2);
 
-    if (movie.code) {
-        rows.push([
-            Markup.button.callback('✨ Shunga o\'xshash', `similar_${movie.code}`),
-            Markup.button.callback('⚠️ Shikoyat', `report_${movie.code}`),
-        ]);
-    }
-
-    if (movie.link && isVip && !movie.isRestricted) {
-        rows.unshift([Markup.button.url('📥 Yuklab olish', movie.link)]);
-    }
-
-    if (!isVip) {
-        rows.push([Markup.button.callback('💎 VIP olish (cheklovsiz yuklash)', 'vip_info')]);
+    // 3-qator: Faqat to'g'ridan-to'g'ri yuklab olish havolasi mavjud bo'lgandagina chiqadi
+    if (movie.link && !movie.isRestricted) {
+        if (isVip) {
+            rows.push([Markup.button.url('📥 Yuklab olish', movie.link)]);
+        } else {
+            rows.push([Markup.button.callback('💎 VIP bilan yuklash', 'vip_info')]);
+        }
     }
 
     return Markup.inlineKeyboard(rows);

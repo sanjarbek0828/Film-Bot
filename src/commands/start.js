@@ -115,9 +115,14 @@ export const setupStartCommand = (bot) => {
             `├ 📝 Kino <b>nomini</b> yozing (masalan: <i>Venom</i>)\n` +
             `└ 🌐 Yoki <b>«🎬 Katalog»</b> orqali qulay tanlang\n\n` +
             `⚡️ <b>Foydali buyruqlar:</b>\n` +
-            `├ /start — Botni yangilash / bosh menyu\n` +
-            `├ /promo — Promokod kiritish va sovg'a olish\n` +
-            `├ /request — Botga yangi film so'rash\n` +
+            `├ /start — Bosh menyu / yangilash\n` +
+            `├ /top — Eng sara va ommabop kinolar\n` +
+            `├ /new — Yangi premyeralar\n` +
+            `├ /random — Tasodifiy film tomosha qilish\n` +
+            `├ /cabinet — Shaxsiy kabinet va ballar\n` +
+            `├ /genres — Kinolar janrlari (kategoriyalar)\n` +
+            `├ /promo — Promokod kiritish va bonus olish\n` +
+            `├ /request — Yangi kino so'rash\n` +
             `├ /support — Texnik yordam bilan bog'lanish\n` +
             `└ /help — Ushbu yordam oynasi\n\n` +
             `💎 <b>VIP obuna imkoniyatlari:</b>\n` +

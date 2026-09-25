@@ -52,7 +52,7 @@ export const isReservedText = (text) => getReservedTexts().has(String(text ?? ''
 /** WebApp manzili (mahalliy ishga tushirishda tugma ko'rsatilmaydi, chunki Telegram HTTPS talab qiladi) */
 export const getWebAppUrl = () => config.webAppUrl;
 
-/** Asosiy klaviatura tuzilishi */
+/** Asosiy klaviatura tuzilishi (ixcham, zamonaviy) */
 export const buildMainKeyboard = (ctx) => {
     const t = (key) => (ctx.t ? ctx.t(key) : getTranslation('uz', key));
     const rows = [];
@@ -62,9 +62,8 @@ export const buildMainKeyboard = (ctx) => {
         rows.push([Markup.button.webApp(t('menu_catalog'), webAppUrl)]);
     }
 
-    rows.push([t('menu_search'), t('menu_new')]);
-    rows.push([t('menu_top'), t('menu_category')]);
-    rows.push([t('menu_random'), t('menu_recommend')]);
+    rows.push([t('menu_top'), t('menu_new')]);
+    rows.push([t('menu_category'), t('menu_random')]);
     rows.push([t('menu_cabinet'), t('menu_settings')]);
 
     return Markup.keyboard(rows).resize();
